@@ -40,13 +40,13 @@ public class Block {
     public Block(byte[] data, Block previous) {
         _previous = previous;
         _nonce = new byte[32];
+        new Random().NextBytes(_nonce);
         _data = data;
         VerifyBlockData();
         _hash = new byte[32];
-        Random rand = new();
         var buf = MakeBuffer();
-        do { // mine loop - randomly change one byte in the nonce
-            buf[rand.Next(_nonce.Length)] = (byte)rand.Next(256);
+        do { // mine loop - increment nonce
+            for (int i = 0; i < 32 && ++buf[i] == 0; i++) ;
             Contract.Assert(SHA256.TryHashData(buf, _hash, out var hl) && hl == _hash.Length, "hash failed");
         } while (!HashValid(_hash));
         Buffer.BlockCopy(buf, 0, _nonce, 0, _nonce.Length);
