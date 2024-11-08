@@ -4,7 +4,10 @@ using System.Security.Cryptography;
 const ulong microReward = 1_000_000; // 1 coin
 const string walletFile = "wallet.txt", blockchainFile = "blockchain.txt";
 byte[] data;
-using (Wallet wallet = new(File.Exists(walletFile) ? File.ReadAllText(walletFile) : null)) {
+bool walletExists = File.Exists(walletFile);
+using (Wallet wallet = new(walletExists ? File.ReadAllText(walletFile) : null)) {
+    if (!walletExists)
+        File.WriteAllText(walletFile, wallet);
     Transaction tx = wallet.CreateTransaction(wallet.PublicKey, 0, 0), tx2 = new(data = tx.Buffer);
     Console.WriteLine("tx: " + Convert.ToHexString(data));
     data = data.Concat(wallet.PublicKey).Concat(BitConverter.GetBytes(microReward)).ToArray();
@@ -120,25 +123,27 @@ public class Transaction {
 }
 
 public class Wallet : IDisposable {
-    public readonly byte[] PrivateKey, PublicKey;
+    public readonly byte[] PublicKey, PrivateKey;
 
     public Wallet(string line) {
         if (line == null) {
             using (RSACryptoServiceProvider rsa = new()) {
-                PrivateKey = rsa.ExportRSAPrivateKey();
                 PublicKey = rsa.ExportRSAPublicKey();
+                PrivateKey = rsa.ExportRSAPrivateKey();
             }
         } else {
             string[] ss = line.Split(' ');
             Contract.Assert(ss.Length == 2, "Invalid wallet line");
-            PrivateKey = Convert.FromHexString(ss[0]);
-            PublicKey = Convert.FromHexString(ss[1]);
+            PublicKey = Convert.FromHexString(ss[0]);
+            PrivateKey = Convert.FromHexString(ss[1]);
             Contract.Assert(PrivateKey.Length >= 600 && PublicKey.Length == 140, "Invalid key lengths");
         }
     }
 
     public Transaction CreateTransaction(byte[] receiver, ulong microAmount, ulong microFee) =>
         new(PublicKey, receiver, microAmount, microFee, PrivateKey);
+
+    public override string ToString() => $"{Convert.ToHexString(PublicKey)} {Convert.ToHexString(PrivateKey)}";
 
     public void Dispose() {
         // clear private key from memory for security
