@@ -22,7 +22,8 @@ Block block = null;
 Console.WriteLine("Loading...");
 if (File.Exists(blockchainFile)) {
     foreach (var line in File.ReadAllLines(blockchainFile)) {
-        Console.WriteLine(block = new(block, line));
+        var ss = line.Split(' ').Select(Convert.FromHexString).ToArray();
+        Console.WriteLine(block = new(block, ss[1], ss[0], ss[2]));
     }
 }
 
@@ -38,7 +39,7 @@ for (;;) { // mining loop
     block = new Block(block, data);
     var elapsed = Stopwatch.GetElapsedTime(sw);
     Console.WriteLine("{0} {1:N0} {2:N3}s {3}Mhps", block, block.HashCount, elapsed.TotalSeconds,
-        block.HashCount / elapsed.TotalSeconds / 1_000_000);
+        block.HashCount / elapsed.TotalSeconds / 1E6);
     File.AppendAllLines(blockchainFile, [block.FileString()]);
 }
 
@@ -47,52 +48,35 @@ public class Block {
     private readonly byte[] _nonce, _data, _hash;
     public readonly int HashCount;
 
-    public Block(Block previous, byte[] data) {
+    public Block(Block previous, byte[] data, byte[] nonce = null, byte[] hash = null) {
         _previous = previous;
-        _nonce = new byte[32];
-        new Random().NextBytes(_nonce);
         _data = data;
         VerifyBlockData();
-        _hash = new byte[32];
-        var buf = MakeBuffer();
+        if (nonce == null) new Random().NextBytes(_nonce = new byte[32]);
+        else _nonce = nonce;
         int nonceOffset = _previous?._hash?.Length ?? 0;
-        do { // mine loop - increment nonce
-            for (int i = 0; i < 32 && ++buf[i + nonceOffset] == 0; i++) ;
-            Contract.Assert(SHA256.TryHashData(buf, _hash, out var hl) && hl == _hash.Length, "hash failed");
-            HashCount++;
-        } while (!HashValid(_hash));
-        Buffer.BlockCopy(buf, nonceOffset, _nonce, 0, _nonce.Length);
+        byte[] buf = [.. _previous?._hash ?? [], .. _nonce, .. _data];
+        if (hash == null) {
+            do { // mine loop - increment nonce
+                for (int i = 0; i < 32 && ++buf[i + nonceOffset] == 0; i++) ;
+                _hash = SHA256.HashData(buf);
+                HashCount++;
+            } while (_hash[0] != 0 || _hash[1] != 0 || _hash[2] != 0);
+            Buffer.BlockCopy(buf, nonceOffset, _nonce, 0, _nonce.Length);
+        } else {
+            _hash = SHA256.HashData(buf);
+            Contract.Assert(_hash[0] == 0 && _hash[1] == 0 && _hash[2] == 0 && _hash.SequenceEqual(hash), "Invalid hash");
+        }
     }
 
-    public Block(Block previous, string fileData) {
-        _previous = previous;
-        var ss = fileData.Split(' ');
-        Contract.Assert(ss.Length == 3, "Invalid file data");
-        _nonce = Convert.FromHexString(ss[0]);
-        _data = Convert.FromHexString(ss[1]);
-        VerifyBlockData();
-        _hash = Convert.FromHexString(ss[2]);
-        Contract.Assert(CheckBlock(), "Invalid block data");
-    }
-
-    public string FileString() =>
-        $"{Convert.ToHexString(_nonce)} {Convert.ToHexString(_data)} {Convert.ToHexString(_hash)}";
+    public string FileString() => string.Join(" ", new[] { _nonce, _data, _hash }.Select(Convert.ToHexString));
 
     public override string ToString() => $"nonce={Convert.ToHexString(_nonce)} hash={Convert.ToHexString(_hash)}";
-
-    private byte[] MakeBuffer() => [.. _previous?._hash ?? [], .. _nonce, .. _data];
 
     private void VerifyBlockData() {
         // here we would check the transactions in the block to make sure each
         // transaction is signed correctly and the sender had sufficient funds
     }
-
-    private bool CheckBlock() {
-        var h = SHA256.HashData(MakeBuffer());
-        return _nonce.Length == 32 && HashValid(h) && h.SequenceEqual(_hash);
-    }
-
-    private static bool HashValid(byte[] hash) => hash.Length == 32 && hash[0] == 0 && hash[1] == 0 && hash[2] == 0;
 }
 
 public class Transaction {
