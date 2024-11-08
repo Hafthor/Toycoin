@@ -7,7 +7,7 @@ byte[] data;
 bool walletExists = File.Exists(walletFile);
 using (Wallet wallet = new(walletExists ? File.ReadAllText(walletFile) : null)) {
     if (!walletExists)
-        File.WriteAllText(walletFile, wallet);
+        File.WriteAllText(walletFile, wallet.ToString());
     Transaction tx = wallet.CreateTransaction(wallet.PublicKey, 0, 0), tx2 = new(data = tx.Buffer);
     Console.WriteLine("tx: " + Convert.ToHexString(data));
     data = data.Concat(wallet.PublicKey).Concat(BitConverter.GetBytes(microReward)).ToArray();
