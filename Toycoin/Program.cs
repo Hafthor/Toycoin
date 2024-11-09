@@ -33,6 +33,9 @@ public class Blockchain {
     public const string BlockchainFile = "blockchain.txt";
     public Block LastBlock { get; private set; }
     public byte[] Difficulty { get; } = [0, 0, 0]; // 3 leading zeros
+    public ulong MicroReward { get; } = 1_000_000; // 1 toycoin
+    
+    private readonly bool _quiet;
 
     private readonly Dictionary<byte[], ulong> _balances = new(ByteArrayComparer.Instance);
 
@@ -44,15 +47,23 @@ public class Blockchain {
     private void UpdateBalances(List<Transaction> transactions, byte[] rewardPublicKey, ulong rewardAmount) {
         checked {
             foreach (var tx in transactions) {
+                if (!_quiet)
+                    Console.WriteLine($"tx: {Convert.ToHexString(tx.Sender)} -> {Convert.ToHexString(tx.Receiver)} {
+                        tx.MicroAmount}+{tx.MicroFee}");
                 _balances[tx.Sender] = _balances.GetValueOrDefault(tx.Sender, 0ul) - tx.MicroAmount - tx.MicroFee;
                 _balances[tx.Receiver] = _balances.GetValueOrDefault(tx.Receiver, 0ul) + tx.MicroAmount;
             }
             _balances[rewardPublicKey] = _balances.GetValueOrDefault(rewardPublicKey, 0ul) + rewardAmount;
+            if (!_quiet) {
+                Console.WriteLine($"reward: {Convert.ToHexString(rewardPublicKey)} {rewardAmount}");
+                Console.WriteLine($"balances: {string.Join(", ",
+                    _balances.Select(kv => $"{Convert.ToHexString(kv.Key)}={kv.Value}"))}");
+            }
         }
     }
 
     public void ValidateTransactions(IList<Transaction> transactions, ulong reward) {
-        ulong actualReward = transactions.Aggregate(Transaction.MicroReward, (sum, tx) => {
+        ulong actualReward = transactions.Aggregate(MicroReward, (sum, tx) => {
             checked {
                 return sum + tx.MicroFee;
             }
@@ -70,6 +81,7 @@ public class Blockchain {
     }
 
     public Blockchain(bool quiet = true) {
+        _quiet = quiet;
         if (File.Exists(BlockchainFile)) {
             foreach (var line in File.ReadAllLines(BlockchainFile)) {
                 var ss = line.Split(' ').Select(Convert.FromHexString).ToArray();
@@ -87,7 +99,7 @@ public class Blockchain {
         //   receiver=our address, amount=reward+fees
         // amount is recorded as convenience and must be checked against current reward amount and sum of the fees.
         LastBlock = new Block(this, LastBlock, transactions, myPublicKey);
-        UpdateBalances(transactions, myPublicKey, Transaction.MicroReward);
+        UpdateBalances(transactions, myPublicKey, MicroReward);
         File.AppendAllLines(BlockchainFile, [LastBlock.FileString()]);
     }
 }
@@ -104,7 +116,7 @@ public class Block {
     }
 
     private static byte[] MakeData(Blockchain bc, IList<Transaction> transactions, byte[] myPublicKey) {
-        ulong reward = transactions.Aggregate(Transaction.MicroReward, (sum, tx) => {
+        ulong reward = transactions.Aggregate(bc.MicroReward, (sum, tx) => {
             checked {
                 return sum + tx.MicroFee;
             }
@@ -155,7 +167,6 @@ public class Block {
 }
 
 public class Transaction {
-    public const ulong MicroReward = 1_000_000; // 1 coin
     public const int BinaryLength = 140 + 140 + 8 + 8 + 128; // 424 bytes
     public byte[] Sender { get; }
     public byte[] Receiver { get; }
