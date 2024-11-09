@@ -6,12 +6,12 @@ namespace Toycoin;
 
 public static class Program {
     public static void Main() {
-        byte[] myPublicKey;
+        ReadOnlySpan<byte> myPublicKey;
         List<Transaction> transactions = [];
         using (Wallet wallet = new()) {
             myPublicKey = wallet.PublicKey;
-            var tx = wallet.CreateTransaction(myPublicKey, 0, 0);
-            Console.WriteLine("tx: " + Convert.ToHexString(tx.Buffer));
+            var tx = wallet.CreateTransaction(myPublicKey, 0, 0); // create a dummy transaction
+            Console.WriteLine("tx: " + Convert.ToHexString(tx.Data));
             transactions.Add(tx);
         }
 
@@ -22,7 +22,6 @@ public static class Program {
             var sw = Stopwatch.GetTimestamp();
             bc.Mine(myPublicKey, transactions);
             var elapsed = Stopwatch.GetElapsedTime(sw).TotalSeconds;
-            transactions.Clear();
             var hc = bc.LastBlock.HashCount;
             Console.WriteLine("{0} {1:N0} {2:N3}s {3:N3}Mhps", bc.LastBlock, hc, elapsed, hc / elapsed / 1E6);
         }
@@ -40,20 +39,22 @@ public class Blockchain {
     private readonly Dictionary<byte[], ulong> _balances = new(ByteArrayComparer.Instance);
 
     private void UpdateBalances(Block block) {
-        (List<Transaction> transactions, byte[] rewardPublicKey, ulong rewardAmount) = block.ReadData();
-        UpdateBalances(transactions, rewardPublicKey, rewardAmount);
+        UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.RewardAmount);
     }
 
-    private void UpdateBalances(List<Transaction> transactions, byte[] rewardPublicKey, ulong rewardAmount) {
+    private void UpdateBalances(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
+        ulong rewardAmount) {
         checked {
             foreach (var tx in transactions) {
                 if (!_quiet)
                     Console.WriteLine($"tx: {Convert.ToHexString(tx.Sender)} -> {Convert.ToHexString(tx.Receiver)} {
                         tx.MicroAmount}+{tx.MicroFee}");
-                _balances[tx.Sender] = _balances.GetValueOrDefault(tx.Sender, 0ul) - tx.MicroAmount - tx.MicroFee;
-                _balances[tx.Receiver] = _balances.GetValueOrDefault(tx.Receiver, 0ul) + tx.MicroAmount;
+                byte[] sender = tx.Sender.ToArray(), receiver = tx.Receiver.ToArray();
+                _balances[sender] = _balances.GetValueOrDefault(sender, 0ul) - tx.MicroAmount - tx.MicroFee;
+                _balances[receiver] = _balances.GetValueOrDefault(receiver, 0ul) + tx.MicroAmount;
             }
-            _balances[rewardPublicKey] = _balances.GetValueOrDefault(rewardPublicKey, 0ul) + rewardAmount;
+            byte[] rewardPublicKeyArray = rewardPublicKey.ToArray();
+            _balances[rewardPublicKeyArray] = _balances.GetValueOrDefault(rewardPublicKeyArray, 0ul) + rewardAmount;
             if (!_quiet) {
                 Console.WriteLine($"reward: {Convert.ToHexString(rewardPublicKey)} {rewardAmount}");
                 Console.WriteLine($"balances: {string.Join(", ",
@@ -62,20 +63,18 @@ public class Blockchain {
         }
     }
 
-    public void ValidateTransactions(IList<Transaction> transactions, ulong reward) {
-        ulong actualReward = transactions.Aggregate(MicroReward, (sum, tx) => {
-            checked {
-                return sum + tx.MicroFee;
-            }
-        });
-        Contract.Assert(reward == actualReward, "Invalid reward amount");
-
+    public void ValidateTransactions(IEnumerable<Transaction> transactions, ulong reward) {
         // pool withdrawals by sender so we can check that they have sufficient funds to cover their transactions
         Dictionary<byte[], ulong> withdrawals = new(ByteArrayComparer.Instance);
+        ulong actualReward = MicroReward;
         checked {
-            foreach (var tx in transactions)
-                withdrawals[tx.Sender] = withdrawals.GetValueOrDefault(tx.Sender, 0ul) + tx.MicroAmount + tx.MicroFee;
+            foreach (var tx in transactions) {
+                var sender = tx.Sender.ToArray();
+                withdrawals[sender] = withdrawals.GetValueOrDefault(sender, 0ul) + tx.MicroAmount + tx.MicroFee;
+                actualReward += tx.MicroFee;
+            }
         }
+        Contract.Assert(reward == actualReward, "Invalid reward amount");
         foreach (var (sender, amount) in withdrawals)
             Contract.Assert(_balances.GetValueOrDefault(sender, 0ul) >= amount, "Insufficient funds");
     }
@@ -84,161 +83,160 @@ public class Blockchain {
         _quiet = quiet;
         if (File.Exists(BlockchainFile)) {
             foreach (var line in File.ReadAllLines(BlockchainFile)) {
-                var ss = line.Split(' ').Select(Convert.FromHexString).ToArray();
+                var ss = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
                 UpdateBalances(LastBlock = new(this, LastBlock, ss[1], ss[0], ss[2]));
                 if (!quiet) Console.WriteLine(LastBlock);
             }
         }
     }
 
-    public void Mine(byte[] myPublicKey, List<Transaction> transactions) {
-        // Here we would add transactions to the block including our reward. Transactions we include would be based
-        // on the fees they pay. There's a limit to the number of transactions we can include. Each would include:
-        //   sender-address, receiver-address, amount, fee, sender-signature
-        // we would add our special reward transaction:
-        //   receiver=our address, amount=reward+fees
-        // amount is recorded as convenience and must be checked against current reward amount and sum of the fees.
+    public void Mine(ReadOnlySpan<byte> myPublicKey, List<Transaction> transactions) {
         LastBlock = new Block(this, LastBlock, transactions, myPublicKey);
         UpdateBalances(transactions, myPublicKey, MicroReward);
         File.AppendAllLines(BlockchainFile, [LastBlock.FileString()]);
+        transactions.Clear();
     }
 }
 
 public class Block {
     public Block Previous { get; }
-    public byte[] Nonce { get; }
-    public byte[] Data { get; }
-    public byte[] Hash { get; }
+    public byte[] BlockData { get; } // PreviousHash + Nonce + Transactions + RewardPublicKey + RewardAmount + Hash
+    private ReadOnlySpan<byte> ToBeHashed => BlockData.AsSpan()[..^32];
+    public ReadOnlySpan<byte> PreviousHash => BlockData.AsSpan()[..32];
+    private Span<byte> MyNonce => BlockData.AsSpan()[32..64];
+    public ReadOnlySpan<byte> Nonce => MyNonce;
+    public ReadOnlySpan<byte> Data => BlockData.AsSpan()[64..^32];
+    public ReadOnlySpan<byte> Hash => BlockData.AsSpan()[^32..];
+    public ReadOnlySpan<byte> Transactions => Data[..^148];
+    public ReadOnlySpan<byte> RewardPublicKey => Data[^148..^8];
+    public ulong RewardAmount => BitConverter.ToUInt64(Data[^8..]);
     public int HashCount { get; }
 
-    public Block(Blockchain bc, Block previous, IList<Transaction> transactions, byte[] myPublicKey) :
+    public Block(Blockchain bc, Block previous, IList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) :
         this(bc, previous, MakeData(bc, transactions, myPublicKey)) {
     }
 
-    private static byte[] MakeData(Blockchain bc, IList<Transaction> transactions, byte[] myPublicKey) {
+    private static byte[] MakeData(Blockchain bc, IList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) {
         ulong reward = transactions.Aggregate(bc.MicroReward, (sum, tx) => {
             checked {
                 return sum + tx.MicroFee;
             }
         });
         bc.ValidateTransactions(transactions, reward);
-        return [.. transactions.SelectMany(tx => tx.Buffer).ToArray(), .. myPublicKey, ..BitConverter.GetBytes(reward)];
+        return [
+            .. transactions.Select(tx => tx.Data).ToArray().Concat(),
+            .. myPublicKey,
+            ..BitConverter.GetBytes(reward)
+        ];
     }
 
     public Block(Blockchain bc, Block previous, byte[] data, byte[] nonce = null, byte[] hash = null) {
+        Contract.Assert(nonce == null || nonce.Length == 32, "Invalid nonce length");
+        Contract.Assert(hash == null || hash.Length == 32, "Invalid hash length");
+        Contract.Assert(data.Length % Transaction.BinaryLength == 140 + 8, "Invalid data length");
         Previous = previous;
-        Data = data;
+        ReadOnlySpan<byte> previousHash = previous == null ? new byte[32] : previous.Hash;
+        BlockData = [
+            .. previousHash,
+            .. nonce ?? new byte[32],
+            .. data,
+            .. hash ?? new byte[32]
+        ];
         VerifyBlockData(bc);
-        if (nonce == null) new Random().NextBytes(Nonce = new byte[32]);
-        else Nonce = nonce;
-        int nonceOffset = Previous?.Hash?.Length ?? 0;
-        byte[] buf = [.. Previous?.Hash ?? [], .. Nonce, .. Data];
+        if (nonce == null) new Random().NextBytes(MyNonce);
         if (hash == null) {
             do { // mine loop - increment nonce
-                for (int i = 0; i < 32 && ++buf[i + nonceOffset] == 0; i++) ;
-                Hash = SHA256.HashData(buf);
+                for (int i = 0; i < 32 && ++MyNonce[i] == 0; i++) ;
+                hash = SHA256.HashData(ToBeHashed);
                 HashCount++;
-            } while (!bc.Difficulty.SequenceEqual(Hash.Take(bc.Difficulty.Length)));
-            Buffer.BlockCopy(buf, nonceOffset, Nonce, 0, Nonce.Length);
+            } while (!bc.Difficulty.SequenceEqual(hash.Take(bc.Difficulty.Length)));
+            Buffer.BlockCopy(hash, 0, BlockData, BlockData.Length - hash.Length, hash.Length);
         } else {
             Contract.Assert(bc.Difficulty.SequenceEqual(hash.Take(bc.Difficulty.Length)), "Invalid hash");
-            Hash = SHA256.HashData(buf);
+            hash = SHA256.HashData(ToBeHashed);
             Contract.Assert(Hash.SequenceEqual(hash), "Invalid hash");
         }
     }
 
-    public string FileString() => string.Join(" ", new[] { Nonce, Data, Hash }.Select(Convert.ToHexString));
+    public string FileString() =>
+        string.Join(" ", Convert.ToHexString(Nonce), Convert.ToHexString(Data), Convert.ToHexString(Hash));
 
     public override string ToString() => $"nonce={Convert.ToHexString(Nonce)} hash={Convert.ToHexString(Hash)}";
 
-    public (List<Transaction> transactions, byte[] rewardPublicKey, ulong rewardAmount) ReadData() {
+    public IEnumerable<Transaction> ReadTransactions() {
         int txCount = Data.Length / Transaction.BinaryLength, remainder = Data.Length % Transaction.BinaryLength;
         Contract.Assert(remainder == 140 + 8, "expected reward transaction at end");
-        List<Transaction> transactions = new(txCount);
         for (int i = 0, si = 0; i < txCount; i++)
-            transactions.Add(new(Data.AsSpan()[si..(si += Transaction.BinaryLength)]));
-        return (transactions, Data.AsSpan()[^148..^8].ToArray(), BitConverter.ToUInt64(Data.AsSpan()[^8..]));
+            yield return new(Data[si..(si += Transaction.BinaryLength)]);
     }
-
+    
     private void VerifyBlockData(Blockchain bc) {
-        (List<Transaction> transactions, _, ulong rewardAmount) = ReadData();
-        bc.ValidateTransactions(transactions, rewardAmount);
+        bc.ValidateTransactions(ReadTransactions(), RewardAmount);
     }
 }
 
 public class Transaction {
     public const int BinaryLength = 140 + 140 + 8 + 8 + 128; // 424 bytes
-    public byte[] Sender { get; }
-    public byte[] Receiver { get; }
-    public ulong MicroAmount { get; }
-    public ulong MicroFee { get; }
-    public byte[] Signature { get; }
+    public byte[] Data { get; }
+    public ReadOnlySpan<byte> Sender => Data.AsSpan()[..140];
+    public ReadOnlySpan<byte> Receiver => Data.AsSpan()[140..280];
+    public ulong MicroAmount => BitConverter.ToUInt64(Data.AsSpan()[280..288]);
+    public ulong MicroFee => BitConverter.ToUInt64(Data.AsSpan()[288..296]);
+    public ReadOnlySpan<byte> Signature => Data.AsSpan()[296..];
 
-    public Transaction(byte[] sender, byte[] receiver, ulong microAmount, ulong microFee, byte[] privateKey) {
+    public Transaction(ReadOnlySpan<byte> sender, ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee,
+        ReadOnlySpan<byte> privateKey) {
         Contract.Assert(sender.Length == 140 && receiver.Length == 140, "Invalid public key length");
         Contract.Assert(privateKey.Length >= 600, "Invalid private key length");
-        Sender = sender;
-        Receiver = receiver;
-        MicroAmount = microAmount;
-        MicroFee = microFee;
-        byte[] buffer = [
-            .. sender, .. receiver,
-            .. BitConverter.GetBytes(microAmount), .. BitConverter.GetBytes(microFee)
+        Data = [
+            .. sender, .. receiver, .. BitConverter.GetBytes(microAmount), .. BitConverter.GetBytes(microFee),
+            .. new byte[128]
         ];
         using (RSACryptoServiceProvider rsa = new()) {
             rsa.ImportRSAPrivateKey(privateKey, out _);
-            Signature = rsa.SignData(buffer, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            var signature = rsa.SignData(Data.AsSpan()[..^128], HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            signature.CopyTo(Data.AsSpan()[^128..]);
         }
     }
 
     public Transaction(ReadOnlySpan<byte> buffer) {
         Contract.Assert(buffer.Length == BinaryLength, "Invalid buffer length");
-        Sender = buffer[..140].ToArray();
-        Receiver = buffer[140..280].ToArray();
-        MicroAmount = BitConverter.ToUInt64(buffer[280..288]);
-        MicroFee = BitConverter.ToUInt64(buffer[288..296]);
-        Signature = buffer[296..].ToArray();
+        Data = buffer.ToArray();
         using (RSACryptoServiceProvider rsa = new()) {
             rsa.ImportRSAPublicKey(Sender, out _);
             Contract.Assert(
-                rsa.VerifyData(buffer[..296], Signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
+                rsa.VerifyData(buffer[..^128], Signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
                 "Invalid signature");
         }
     }
-
-    public byte[] Buffer => [
-        .. Sender, .. Receiver, .. BitConverter.GetBytes(MicroAmount), .. BitConverter.GetBytes(MicroFee),
-        .. Signature
-    ];
 }
 
 public class Wallet : IDisposable {
-    public const string walletFile = "wallet.dat";
-    public readonly byte[] PublicKey, PrivateKey;
+    public const string WalletFile = "wallet.dat";
+    private readonly byte[] _data;
+    public ReadOnlySpan<byte> PublicKey => _data.AsSpan()[..140];
+    public ReadOnlySpan<byte> PrivateKey => _data.AsSpan()[140..];
 
     public Wallet() {
-        byte[] walletData;
-        if (File.Exists(walletFile)) {
-            walletData = File.ReadAllBytes(walletFile);
-            PublicKey = walletData[..140];
-            PrivateKey = walletData[140..];
+        if (File.Exists(WalletFile)) {
+            _data = File.ReadAllBytes(WalletFile);
         } else {
             using (RSACryptoServiceProvider rsa = new()) {
-                PublicKey = rsa.ExportRSAPublicKey();
-                PrivateKey = rsa.ExportRSAPrivateKey();
+                var publicKey = rsa.ExportRSAPublicKey();
+                var privateKey = rsa.ExportRSAPrivateKey();
+                _data = [.. publicKey, .. privateKey];
+                Array.Clear(privateKey); // clear copy of private key from memory for security
             }
-            walletData = [.. PublicKey, .. PrivateKey];
-            File.WriteAllBytes(walletFile, walletData);
+            File.WriteAllBytes(WalletFile, _data);
         }
-        Array.Clear(walletData); // clear wallet data from memory for security
     }
 
-    public Transaction CreateTransaction(byte[] receiver, ulong microAmount, ulong microFee) =>
+    public Transaction CreateTransaction(ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee) =>
         new(PublicKey, receiver, microAmount, microFee, PrivateKey);
 
     public override string ToString() => $"{Convert.ToHexString(PublicKey)}";
 
-    public void Dispose() => Array.Clear(PrivateKey); // clear private key from memory for security
+    public void Dispose() => Array.Clear(_data, 140, _data.Length - 140); // clear private key from memory for security
 }
 
 public class ByteArrayComparer : EqualityComparer<byte[]> {
@@ -255,5 +253,18 @@ public class ByteArrayComparer : EqualityComparer<byte[]> {
     public override int GetHashCode(byte[] obj) {
         ArgumentNullException.ThrowIfNull(obj);
         return obj.Length;
+    }
+}
+
+public static class Extensions {
+    public static byte[] Concat(this IList<byte[]> arrays) {
+        if (arrays.Count == 1) return arrays[0];
+        byte[] result = new byte[arrays.Sum(a => a.Length)];
+        int offset = 0;
+        foreach(var a in arrays) {
+            Buffer.BlockCopy(a, 0, result, offset, a.Length);
+            offset += a.Length;
+        }
+        return result;
     }
 }
