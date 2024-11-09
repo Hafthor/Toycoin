@@ -20,7 +20,7 @@ public static class Program {
         Console.WriteLine("Mining...");
         for (;;) { // mining loop
             var sw = Stopwatch.GetTimestamp();
-            bc.Mine(myPublicKey, transactions);
+            bc.Mine(myPublicKey, transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList());
             var elapsed = Stopwatch.GetElapsedTime(sw).TotalSeconds;
             var hc = bc.LastBlock.HashCount;
             Console.WriteLine("{0} {1:N0} {2:N3}s {3:N3}Mhps", bc.LastBlock, hc, elapsed, hc / elapsed / 1E6);
@@ -33,6 +33,7 @@ public class Blockchain {
     public Block LastBlock { get; private set; }
     public byte[] Difficulty { get; } = [0, 0, 0]; // 3 leading zeros
     public ulong MicroReward { get; } = 1_000_000; // 1 toycoin
+    public int MaxTransactions { get; } = 10;
     
     private readonly bool _quiet;
 
@@ -67,13 +68,16 @@ public class Blockchain {
         // pool withdrawals by sender so we can check that they have sufficient funds to cover their transactions
         Dictionary<byte[], ulong> withdrawals = new(ByteArrayComparer.Instance);
         ulong actualReward = MicroReward;
+        int count = 0;
         checked {
             foreach (var tx in transactions) {
                 var sender = tx.Sender.ToArray();
                 withdrawals[sender] = withdrawals.GetValueOrDefault(sender, 0ul) + tx.MicroAmount + tx.MicroFee;
                 actualReward += tx.MicroFee;
+                count++;
             }
         }
+        Contract.Assert(count <= MaxTransactions, "Too many transactions");
         Contract.Assert(reward == actualReward, "Invalid reward amount");
         foreach (var (sender, amount) in withdrawals)
             Contract.Assert(_balances.GetValueOrDefault(sender, 0ul) >= amount, "Insufficient funds");
@@ -106,7 +110,8 @@ public class Block {
     private Span<byte> MyNonce => BlockData.AsSpan()[32..64];
     public ReadOnlySpan<byte> Nonce => MyNonce;
     public ReadOnlySpan<byte> Data => BlockData.AsSpan()[64..^32];
-    public ReadOnlySpan<byte> Hash => BlockData.AsSpan()[^32..];
+    private Span<byte> MyHash => BlockData.AsSpan()[^32..];
+    public ReadOnlySpan<byte> Hash => MyHash;
     public ReadOnlySpan<byte> Transactions => Data[..^148];
     public ReadOnlySpan<byte> RewardPublicKey => Data[^148..^8];
     public ulong RewardAmount => BitConverter.ToUInt64(Data[^8..]);
@@ -130,7 +135,8 @@ public class Block {
         ];
     }
 
-    public Block(Blockchain bc, Block previous, byte[] data, byte[] nonce = null, byte[] hash = null) {
+    public Block(Blockchain bc, Block previous, ReadOnlySpan<byte> data, byte[] nonce = null, byte[] hash = null) {
+        Contract.Assert(bc != null, "Missing blockchain");
         Contract.Assert(nonce == null || nonce.Length == 32, "Invalid nonce length");
         Contract.Assert(hash == null || hash.Length == 32, "Invalid hash length");
         Contract.Assert(data.Length % Transaction.BinaryLength == 140 + 8, "Invalid data length");
@@ -146,13 +152,13 @@ public class Block {
         if (nonce == null) new Random().NextBytes(MyNonce);
         if (hash == null) {
             do { // mine loop - increment nonce
-                for (int i = 0; i < 32 && ++MyNonce[i] == 0; i++) ;
+                for (int i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ;
                 hash = SHA256.HashData(ToBeHashed);
                 HashCount++;
-            } while (!bc.Difficulty.SequenceEqual(hash.Take(bc.Difficulty.Length)));
-            Buffer.BlockCopy(hash, 0, BlockData, BlockData.Length - hash.Length, hash.Length);
+            } while (!hash.IsLessThan(bc.Difficulty));
+            for (int i = 0; i < hash.Length; i++) MyHash[i] = hash[i];
         } else {
-            Contract.Assert(bc.Difficulty.SequenceEqual(hash.Take(bc.Difficulty.Length)), "Invalid hash");
+            Contract.Assert(hash.IsLessThan(bc.Difficulty), "Invalid hash");
             hash = SHA256.HashData(ToBeHashed);
             Contract.Assert(Hash.SequenceEqual(hash), "Invalid hash");
         }
@@ -170,9 +176,7 @@ public class Block {
             yield return new(Data[si..(si += Transaction.BinaryLength)]);
     }
     
-    private void VerifyBlockData(Blockchain bc) {
-        bc.ValidateTransactions(ReadTransactions(), RewardAmount);
-    }
+    private void VerifyBlockData(Blockchain bc) => bc.ValidateTransactions(ReadTransactions(), RewardAmount);
 }
 
 public class Transaction {
@@ -215,7 +219,8 @@ public class Wallet : IDisposable {
     public const string WalletFile = "wallet.dat";
     private readonly byte[] _data;
     public ReadOnlySpan<byte> PublicKey => _data.AsSpan()[..140];
-    public ReadOnlySpan<byte> PrivateKey => _data.AsSpan()[140..];
+    private Span<byte> MyPrivateKey => _data.AsSpan()[140..];
+    public ReadOnlySpan<byte> PrivateKey => MyPrivateKey;
 
     public Wallet() {
         if (File.Exists(WalletFile)) {
@@ -236,7 +241,7 @@ public class Wallet : IDisposable {
 
     public override string ToString() => $"{Convert.ToHexString(PublicKey)}";
 
-    public void Dispose() => Array.Clear(_data, 140, _data.Length - 140); // clear private key from memory for security
+    public void Dispose() => MyPrivateKey.Clear(); // clear private key from memory for security
 }
 
 public class ByteArrayComparer : EqualityComparer<byte[]> {
@@ -258,6 +263,7 @@ public class ByteArrayComparer : EqualityComparer<byte[]> {
 
 public static class Extensions {
     public static byte[] Concat(this IList<byte[]> arrays) {
+        if (arrays.Count == 0) return [];
         if (arrays.Count == 1) return arrays[0];
         byte[] result = new byte[arrays.Sum(a => a.Length)];
         int offset = 0;
@@ -266,5 +272,15 @@ public static class Extensions {
             offset += a.Length;
         }
         return result;
+    }
+
+    public static bool IsLessThan(this byte[] first, byte[] second) {
+        int length = Math.Min(first.Length, second.Length);
+        for (int i = 0; i < length; i++) {
+            int diff = (int)first[i] - (int)second[i];
+            if (diff < 0) return true;
+            if (diff > 0) return false;
+        }
+        return true;
     }
 }
