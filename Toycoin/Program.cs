@@ -153,10 +153,9 @@ public class Block {
         if (hash == null) {
             do { // mine loop - increment nonce
                 for (int i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ;
-                hash = SHA256.HashData(ToBeHashed);
+                SHA256.TryHashData(ToBeHashed, MyHash, out _);
                 HashCount++;
-            } while (!hash.IsLessThan(bc.Difficulty));
-            for (int i = 0; i < hash.Length; i++) MyHash[i] = hash[i];
+            } while (!Hash.IsLessThan(bc.Difficulty));
         } else {
             Contract.Assert(hash.IsLessThan(bc.Difficulty), "Invalid hash");
             hash = SHA256.HashData(ToBeHashed);
@@ -274,7 +273,11 @@ public static class Extensions {
         return result;
     }
 
-    public static bool IsLessThan(this byte[] first, byte[] second) {
+    public static bool IsLessThan(this byte[] first, byte[] second) => IsLessThan(first.AsSpan(), second.AsSpan());
+    public static bool IsLessThan(this ReadOnlySpan<byte> first, byte[] second) => IsLessThan(first, second.AsSpan());
+    public static bool IsLessThan(this byte[] first, ReadOnlySpan<byte> second) => IsLessThan(first.AsSpan(), second);
+    
+    public static bool IsLessThan(this ReadOnlySpan<byte> first, ReadOnlySpan<byte> second) {
         int length = Math.Min(first.Length, second.Length);
         for (int i = 0; i < length; i++) {
             int diff = (int)first[i] - (int)second[i];
