@@ -20,7 +20,9 @@ public static class Program {
         Console.WriteLine("Mining...");
         for (;;) { // mining loop
             var sw = Stopwatch.GetTimestamp();
-            bc.Mine(myPublicKey, transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList());
+            var txs = transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList();
+            transactions = transactions.Except(txs).ToList();
+            bc.Mine(myPublicKey, txs);
             var elapsed = Stopwatch.GetElapsedTime(sw).TotalSeconds;
             var hc = bc.LastBlock.HashCount;
             Console.WriteLine("{0} {1:N0} {2:N3}s {3:N3}Mhps", bc.LastBlock, hc, elapsed, hc / elapsed / 1E6);
