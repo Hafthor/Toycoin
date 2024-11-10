@@ -102,6 +102,16 @@ public class Blockchain {
         File.AppendAllLines(BlockchainFile, [LastBlock.FileString()]);
         transactions.Clear();
     }
+
+    private int _previousSpinner = 0;
+
+    public void Spinner() {
+        if (_quiet) return;
+        int t = DateTime.Now.Millisecond / 100;
+        if (t == _previousSpinner) return;
+        Console.Write("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[_previousSpinner = t]);
+        Console.Write('\b');
+    }
 }
 
 public class Block {
@@ -154,7 +164,9 @@ public class Block {
         if (nonce == null) new Random().NextBytes(MyNonce);
         if (hash == null) {
             do { // mine loop - increment nonce
-                for (int i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ;
+                int i = 0;
+                for (; i < Nonce.Length && ++MyNonce[i] == 0; i++) ;
+                if (i > 1) bc.Spinner();
                 SHA256.TryHashData(ToBeHashed, MyHash, out _);
                 HashCount++;
             } while (!Hash.IsLessThan(bc.Difficulty));
