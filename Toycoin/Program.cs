@@ -162,18 +162,15 @@ public class Block {
         ];
         VerifyBlockData(bc);
         if (nonce == null) new Random().NextBytes(MyNonce);
+        SHA256.TryHashData(ToBeHashed, MyHash, out _);
         if (hash == null) {
-            do { // mine loop - increment nonce
-                int i = 0;
-                for (; i < Nonce.Length && ++MyNonce[i] == 0; i++) ;
+            for (int i; !Hash.IsLessThan(bc.Difficulty); HashCount++) { // mine loop - increment nonce
+                for (i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ;
                 if (i > 1) bc.Spinner();
                 SHA256.TryHashData(ToBeHashed, MyHash, out _);
-                HashCount++;
-            } while (!Hash.IsLessThan(bc.Difficulty));
+            }
         } else {
-            Contract.Assert(hash.IsLessThan(bc.Difficulty), "Invalid hash");
-            hash = SHA256.HashData(ToBeHashed);
-            Contract.Assert(Hash.SequenceEqual(hash), "Invalid hash");
+            Contract.Assert(Hash.IsLessThan(bc.Difficulty) && Hash.SequenceEqual(hash), "Invalid hash");
         }
     }
 
