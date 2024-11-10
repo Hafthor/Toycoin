@@ -36,14 +36,13 @@ public class Blockchain {
     public byte[] Difficulty { get; } = [0, 0, 0]; // 3 leading zeros
     public ulong MicroReward { get; } = 1_000_000; // 1 toycoin
     public int MaxTransactions { get; } = 10;
-    
+
     private readonly bool _quiet;
 
     private readonly Dictionary<byte[], ulong> _balances = new(ByteArrayComparer.Instance);
 
-    private void UpdateBalances(Block block) {
+    private void UpdateBalances(Block block) =>
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.RewardAmount);
-    }
 
     private void UpdateBalances(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
         ulong rewardAmount) {
@@ -56,7 +55,7 @@ public class Blockchain {
                 _balances[sender] = _balances.GetValueOrDefault(sender, 0ul) - tx.MicroAmount - tx.MicroFee;
                 _balances[receiver] = _balances.GetValueOrDefault(receiver, 0ul) + tx.MicroAmount;
             }
-            byte[] rewardPublicKeyArray = rewardPublicKey.ToArray();
+            var rewardPublicKeyArray = rewardPublicKey.ToArray();
             _balances[rewardPublicKeyArray] = _balances.GetValueOrDefault(rewardPublicKeyArray, 0ul) + rewardAmount;
             if (!_quiet) {
                 Console.WriteLine($"reward: {Convert.ToHexString(rewardPublicKey)} {rewardAmount}");
@@ -69,8 +68,8 @@ public class Blockchain {
     public void ValidateTransactions(IEnumerable<Transaction> transactions, ulong reward) {
         // pool withdrawals by sender so we can check that they have sufficient funds to cover their transactions
         Dictionary<byte[], ulong> withdrawals = new(ByteArrayComparer.Instance);
-        ulong actualReward = MicroReward;
-        int count = 0;
+        var actualReward = MicroReward;
+        var count = 0;
         checked {
             foreach (var tx in transactions) {
                 var sender = tx.Sender.ToArray();
@@ -87,12 +86,11 @@ public class Blockchain {
 
     public Blockchain(bool quiet = true) {
         _quiet = quiet;
-        if (File.Exists(BlockchainFile)) {
-            foreach (var line in File.ReadAllLines(BlockchainFile)) {
-                var ss = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
-                UpdateBalances(LastBlock = new(this, LastBlock, ss[1], ss[0], ss[2]));
-                if (!quiet) Console.WriteLine(LastBlock);
-            }
+        if (!File.Exists(BlockchainFile)) return;
+        foreach (var line in File.ReadAllLines(BlockchainFile)) {
+            var ss = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
+            UpdateBalances(LastBlock = new(this, LastBlock, ss[1], ss[0], ss[2]));
+            if (!quiet) Console.WriteLine(LastBlock);
         }
     }
 
@@ -107,7 +105,7 @@ public class Blockchain {
 
     public void Spinner() {
         if (_quiet) return;
-        int t = DateTime.Now.Millisecond / 100;
+        var t = DateTime.Now.Millisecond / 100;
         if (t == _previousSpinner) return;
         Console.Write("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[_previousSpinner = t]);
         Console.Write('\b');
@@ -134,7 +132,7 @@ public class Block {
     }
 
     private static byte[] MakeData(Blockchain bc, IList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) {
-        ulong reward = transactions.Aggregate(bc.MicroReward, (sum, tx) => {
+        var reward = transactions.Aggregate(bc.MicroReward, (sum, tx) => {
             checked {
                 return sum + tx.MicroFee;
             }
@@ -153,7 +151,7 @@ public class Block {
         Contract.Assert(hash == null || hash.Length == 32, "Invalid hash length");
         Contract.Assert(data.Length % Transaction.BinaryLength == 140 + 8, "Invalid data length");
         Previous = previous;
-        ReadOnlySpan<byte> previousHash = previous == null ? new byte[32] : previous.Hash;
+        var previousHash = previous == null ? new byte[32] : previous.Hash;
         BlockData = [
             .. previousHash,
             .. nonce ?? new byte[32],
@@ -185,7 +183,7 @@ public class Block {
         for (int i = 0, si = 0; i < txCount; i++)
             yield return new(Data[si..(si += Transaction.BinaryLength)]);
     }
-    
+
     private void VerifyBlockData(Blockchain bc) => bc.ValidateTransactions(ReadTransactions(), RewardAmount);
 }
 
@@ -203,7 +201,10 @@ public class Transaction {
         Contract.Assert(sender.Length == 140 && receiver.Length == 140, "Invalid public key length");
         Contract.Assert(privateKey.Length >= 600, "Invalid private key length");
         Data = [
-            .. sender, .. receiver, .. BitConverter.GetBytes(microAmount), .. BitConverter.GetBytes(microFee),
+            .. sender,
+            .. receiver,
+            .. BitConverter.GetBytes(microAmount),
+            .. BitConverter.GetBytes(microFee),
             .. new byte[128]
         ];
         using (RSACryptoServiceProvider rsa = new()) {
@@ -237,8 +238,7 @@ public class Wallet : IDisposable {
             _data = File.ReadAllBytes(WalletFile);
         } else {
             using (RSACryptoServiceProvider rsa = new()) {
-                var publicKey = rsa.ExportRSAPublicKey();
-                var privateKey = rsa.ExportRSAPrivateKey();
+                byte[] publicKey = rsa.ExportRSAPublicKey(), privateKey = rsa.ExportRSAPrivateKey();
                 _data = [.. publicKey, .. privateKey];
                 Array.Clear(privateKey); // clear copy of private key from memory for security
             }
@@ -275,9 +275,9 @@ public static class Extensions {
     public static byte[] Concat(this IList<byte[]> arrays) {
         if (arrays.Count == 0) return [];
         if (arrays.Count == 1) return arrays[0];
-        byte[] result = new byte[arrays.Sum(a => a.Length)];
-        int offset = 0;
-        foreach(var a in arrays) {
+        var result = new byte[arrays.Sum(a => a.Length)];
+        var offset = 0;
+        foreach (var a in arrays) {
             Buffer.BlockCopy(a, 0, result, offset, a.Length);
             offset += a.Length;
         }
@@ -287,14 +287,11 @@ public static class Extensions {
     public static bool IsLessThan(this byte[] first, byte[] second) => IsLessThan(first.AsSpan(), second.AsSpan());
     public static bool IsLessThan(this ReadOnlySpan<byte> first, byte[] second) => IsLessThan(first, second.AsSpan());
     public static bool IsLessThan(this byte[] first, ReadOnlySpan<byte> second) => IsLessThan(first.AsSpan(), second);
-    
+
     public static bool IsLessThan(this ReadOnlySpan<byte> first, ReadOnlySpan<byte> second) {
-        int length = Math.Min(first.Length, second.Length);
-        for (int i = 0; i < length; i++) {
-            int diff = (int)first[i] - (int)second[i];
-            if (diff < 0) return true;
-            if (diff > 0) return false;
-        }
+        for (int i = 0, length = Math.Min(first.Length, second.Length); i < length; i++)
+            if (first[i] != second[i])
+                return first[i] < second[i];
         return true;
     }
 }
