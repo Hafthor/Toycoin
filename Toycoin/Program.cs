@@ -11,7 +11,7 @@ public static class Program {
         using (Wallet wallet = new()) {
             myPublicKey = wallet.PublicKey;
             var tx = wallet.CreateTransaction(myPublicKey, 0, 0); // create a dummy transaction
-            Console.WriteLine("tx: " + Convert.ToHexString(tx.Data));
+            Console.WriteLine($"tx: {tx}");
             transactions.Add(tx);
         }
 
@@ -19,13 +19,14 @@ public static class Program {
         var bc = new Blockchain(quiet: false);
         Console.WriteLine("Mining...");
         for (;;) { // mining loop
-            var sw = Stopwatch.GetTimestamp();
-            var txs = transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList();
-            transactions = transactions.Except(txs).ToList();
-            bc.Mine(myPublicKey, txs);
-            var elapsed = Stopwatch.GetElapsedTime(sw).TotalSeconds;
-            var hc = bc.LastBlock.HashCount;
-            Console.WriteLine("{0} {1:N0} {2:N3}s {3:N3}Mhps", bc.LastBlock, hc, elapsed, hc / elapsed / 1E6);
+            // get the highest paying transactions
+            var mineTxs = transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList();
+            transactions = transactions.Except(mineTxs).ToList(); // remove the transactions we are mining for
+            var startTime = Stopwatch.GetTimestamp();
+            var block = bc.Mine(myPublicKey, mineTxs);
+            var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
+            var hashes = block.HashCount;
+            Console.WriteLine("{0} {1:N0} {2:N3}s {3:N3}Mhps", bc.LastBlock, hashes, elapsed, hashes / elapsed / 1E6);
         }
     }
 }
@@ -42,47 +43,45 @@ public class Blockchain {
     private readonly Dictionary<byte[], ulong> _balances = new(ByteArrayComparer.Instance);
 
     private void UpdateBalances(Block block) =>
-        UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.RewardAmount);
+        UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
 
     private void UpdateBalances(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
-        ulong rewardAmount) {
+        ulong totalMicroRewardAmount, bool justCheck = false) {
         checked {
-            foreach (var tx in transactions) {
-                if (!_quiet)
-                    Console.WriteLine($"tx: {Convert.ToHexString(tx.Sender)} -> {Convert.ToHexString(tx.Receiver)} {
-                        tx.MicroAmount}+{tx.MicroFee}");
-                byte[] sender = tx.Sender.ToArray(), receiver = tx.Receiver.ToArray();
-                _balances[sender] = _balances.GetValueOrDefault(sender, 0ul) - tx.MicroAmount - tx.MicroFee;
-                _balances[receiver] = _balances.GetValueOrDefault(receiver, 0ul) + tx.MicroAmount;
-            }
             var rewardPublicKeyArray = rewardPublicKey.ToArray();
-            _balances[rewardPublicKeyArray] = _balances.GetValueOrDefault(rewardPublicKeyArray, 0ul) + rewardAmount;
+            var checkReward = MicroReward;
+            // group transactions by sender and receiver with adds and subs
+            Dictionary<byte[], ulong> adds = new(ByteArrayComparer.Instance), subs = new(ByteArrayComparer.Instance);
+            foreach (var tx in transactions) {
+                byte[] sender = tx.Sender.ToArray(), receiver = tx.Receiver.ToArray();
+                adds[receiver] = adds.GetValueOrDefault(receiver, 0ul) + tx.MicroAmount;
+                subs[sender] = subs.GetValueOrDefault(sender, 0ul) + tx.MicroAmount + tx.MicroFee;
+                checkReward += tx.MicroFee;
+            }
+            Contract.Assert(checkReward == totalMicroRewardAmount, "Invalid total reward amount");
+            adds[rewardPublicKeyArray] = adds.GetValueOrDefault(rewardPublicKeyArray, 0ul) + totalMicroRewardAmount;
+
+            // update balances
+            lock (_balances) {
+                // perform adds first to avoid negative balances
+                foreach (var (key, value) in subs)
+                    Contract.Assert(_balances.GetValueOrDefault(key, 0ul) >= value, "Insufficient funds");
+                if (justCheck) return;
+                foreach (var (key, value) in adds)
+                    _balances[key] = _balances.GetValueOrDefault(key, 0ul) + value;
+                foreach (var (key, value) in subs)
+                    _balances[key] -= value; // _balances MUST always have a value for key
+            }
             if (!_quiet) {
-                Console.WriteLine($"reward: {Convert.ToHexString(rewardPublicKey)} {rewardAmount}");
+                Console.WriteLine($"reward: {Convert.ToHexString(rewardPublicKey)} {totalMicroRewardAmount}");
                 Console.WriteLine($"balances: {string.Join(", ",
                     _balances.Select(kv => $"{Convert.ToHexString(kv.Key)}={kv.Value}"))}");
             }
         }
     }
 
-    public void ValidateTransactions(IEnumerable<Transaction> transactions, ulong reward) {
-        // pool withdrawals by sender so we can check that they have sufficient funds to cover their transactions
-        Dictionary<byte[], ulong> withdrawals = new(ByteArrayComparer.Instance);
-        var actualReward = MicroReward;
-        var count = 0;
-        checked {
-            foreach (var tx in transactions) {
-                var sender = tx.Sender.ToArray();
-                withdrawals[sender] = withdrawals.GetValueOrDefault(sender, 0ul) + tx.MicroAmount + tx.MicroFee;
-                actualReward += tx.MicroFee;
-                count++;
-            }
-        }
-        Contract.Assert(count <= MaxTransactions, "Too many transactions");
-        Contract.Assert(reward == actualReward, "Invalid reward amount");
-        foreach (var (sender, amount) in withdrawals)
-            Contract.Assert(_balances.GetValueOrDefault(sender, 0ul) >= amount, "Insufficient funds");
-    }
+    public void ValidateTransactions(IEnumerable<Transaction> transactions, ulong totalMicroRewardAmount) =>
+        UpdateBalances(transactions, Array.Empty<byte>(), totalMicroRewardAmount, justCheck: true);
 
     public Blockchain(bool quiet = true) {
         _quiet = quiet;
@@ -94,11 +93,12 @@ public class Blockchain {
         }
     }
 
-    public void Mine(ReadOnlySpan<byte> myPublicKey, List<Transaction> transactions) {
+    public Block Mine(ReadOnlySpan<byte> myPublicKey, List<Transaction> transactions) {
         LastBlock = new Block(this, LastBlock, transactions, myPublicKey);
         UpdateBalances(transactions, myPublicKey, MicroReward);
         File.AppendAllLines(BlockchainFile, [LastBlock.FileString()]);
         transactions.Clear();
+        return LastBlock;
     }
 
     private int _previousSpinner = 0;
@@ -114,17 +114,19 @@ public class Blockchain {
 
 public class Block {
     public Block Previous { get; }
-    public byte[] BlockData { get; } // PreviousHash + Nonce + Transactions + RewardPublicKey + RewardAmount + Hash
-    private ReadOnlySpan<byte> ToBeHashed => BlockData.AsSpan()[..^32];
-    public ReadOnlySpan<byte> PreviousHash => BlockData.AsSpan()[..32];
-    private Span<byte> MyNonce => BlockData.AsSpan()[32..64];
+
+    // PreviousHash(32) + Nonce(32) + Transactions(424*n) + RewardPublicKey(140) + TotalMicroRewardAmount(8) + Hash(32)
+    public byte[] Data { get; }
+    private Span<byte> MyNonce => Data.AsSpan()[32..64];
+    private Span<byte> MyHash => Data.AsSpan()[^32..];
+    private ReadOnlySpan<byte> ToBeHashed => Data.AsSpan()[..^32];
+    public ReadOnlySpan<byte> PreviousHash => Data.AsSpan()[..32];
     public ReadOnlySpan<byte> Nonce => MyNonce;
-    public ReadOnlySpan<byte> Data => BlockData.AsSpan()[64..^32];
-    private Span<byte> MyHash => BlockData.AsSpan()[^32..];
+    public ReadOnlySpan<byte> TransactionData => Data.AsSpan()[64..^32];
     public ReadOnlySpan<byte> Hash => MyHash;
-    public ReadOnlySpan<byte> Transactions => Data[..^148];
-    public ReadOnlySpan<byte> RewardPublicKey => Data[^148..^8];
-    public ulong RewardAmount => BitConverter.ToUInt64(Data[^8..]);
+    public ReadOnlySpan<byte> Transactions => TransactionData[..^148];
+    public ReadOnlySpan<byte> RewardPublicKey => TransactionData[^148..^8];
+    public ulong TotalMicroRewardAmount => BitConverter.ToUInt64(TransactionData[^8..]);
     public int HashCount { get; }
 
     public Block(Blockchain bc, Block previous, IList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) :
@@ -132,16 +134,16 @@ public class Block {
     }
 
     private static byte[] MakeData(Blockchain bc, IList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) {
-        var reward = transactions.Aggregate(bc.MicroReward, (sum, tx) => {
+        var totalMicroRewardAmount = transactions.Aggregate(bc.MicroReward, (sum, tx) => {
             checked {
                 return sum + tx.MicroFee;
             }
         });
-        bc.ValidateTransactions(transactions, reward);
+        bc.ValidateTransactions(transactions, totalMicroRewardAmount);
         return [
             .. transactions.Select(tx => tx.Data).ToArray().Concat(),
             .. myPublicKey,
-            ..BitConverter.GetBytes(reward)
+            ..BitConverter.GetBytes(totalMicroRewardAmount)
         ];
     }
 
@@ -152,7 +154,7 @@ public class Block {
         Contract.Assert(data.Length % Transaction.BinaryLength == 140 + 8, "Invalid data length");
         Previous = previous;
         var previousHash = previous == null ? new byte[32] : previous.Hash;
-        BlockData = [
+        Data = [
             .. previousHash,
             .. nonce ?? new byte[32],
             .. data,
@@ -162,8 +164,8 @@ public class Block {
         if (nonce == null) new Random().NextBytes(MyNonce);
         SHA256.TryHashData(ToBeHashed, MyHash, out _);
         if (hash == null) {
-            for (int i; !Hash.IsLessThan(bc.Difficulty); HashCount++) { // mine loop - increment nonce
-                for (i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ;
+            for (int i; !Hash.IsLessThan(bc.Difficulty); HashCount++) { // mine loop
+                for (i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ; // increment nonce
                 if (i > 1) bc.Spinner();
                 SHA256.TryHashData(ToBeHashed, MyHash, out _);
             }
@@ -173,64 +175,74 @@ public class Block {
     }
 
     public string FileString() =>
-        string.Join(" ", Convert.ToHexString(Nonce), Convert.ToHexString(Data), Convert.ToHexString(Hash));
+        string.Join(" ", Convert.ToHexString(Nonce), Convert.ToHexString(TransactionData), Convert.ToHexString(Hash));
 
     public override string ToString() => $"nonce={Convert.ToHexString(Nonce)} hash={Convert.ToHexString(Hash)}";
 
     public IEnumerable<Transaction> ReadTransactions() {
-        int txCount = Data.Length / Transaction.BinaryLength, remainder = Data.Length % Transaction.BinaryLength;
+        int txCount = TransactionData.Length / Transaction.BinaryLength,
+            remainder = TransactionData.Length % Transaction.BinaryLength;
         Contract.Assert(remainder == 140 + 8, "expected reward transaction at end");
         for (int i = 0, si = 0; i < txCount; i++)
-            yield return new(Data[si..(si += Transaction.BinaryLength)]);
+            yield return new(TransactionData[si..(si += Transaction.BinaryLength)]);
     }
 
-    private void VerifyBlockData(Blockchain bc) => bc.ValidateTransactions(ReadTransactions(), RewardAmount);
+    private void VerifyBlockData(Blockchain bc) => bc.ValidateTransactions(ReadTransactions(), TotalMicroRewardAmount);
 }
 
 public class Transaction {
-    public const int BinaryLength = 140 + 140 + 8 + 8 + 128; // 424 bytes
+    public const int BinaryLength = 140 + 8 + 140 + 8 + 128; // 424 bytes
     public byte[] Data { get; }
-    public ReadOnlySpan<byte> Sender => Data.AsSpan()[..140];
-    public ReadOnlySpan<byte> Receiver => Data.AsSpan()[140..280];
-    public ulong MicroAmount => BitConverter.ToUInt64(Data.AsSpan()[280..288]);
+    private Span<byte> MySignature => Data.AsSpan()[^128..];
+    
+    // we put Receiver and MicroAmount first to match the reward mini-transaction at the end
+    public ReadOnlySpan<byte> Receiver => Data.AsSpan()[..140];
+    public ulong MicroAmount => BitConverter.ToUInt64(Data.AsSpan()[140..148]);
+    public ReadOnlySpan<byte> Sender => Data.AsSpan()[148..288];
     public ulong MicroFee => BitConverter.ToUInt64(Data.AsSpan()[288..296]);
-    public ReadOnlySpan<byte> Signature => Data.AsSpan()[296..];
+    public ReadOnlySpan<byte> ToBeSigned => Data.AsSpan()[..^128];
+    public ReadOnlySpan<byte> Signature => MySignature;
 
     public Transaction(ReadOnlySpan<byte> sender, ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee,
         ReadOnlySpan<byte> privateKey) {
         Contract.Assert(sender.Length == 140 && receiver.Length == 140, "Invalid public key length");
         Contract.Assert(privateKey.Length >= 600, "Invalid private key length");
         Data = [
-            .. sender,
             .. receiver,
             .. BitConverter.GetBytes(microAmount),
+            .. sender,
             .. BitConverter.GetBytes(microFee),
-            .. new byte[128]
+            .. new byte[128] // signature
         ];
         using (RSACryptoServiceProvider rsa = new()) {
             rsa.ImportRSAPrivateKey(privateKey, out _);
-            var signature = rsa.SignData(Data.AsSpan()[..^128], HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-            signature.CopyTo(Data.AsSpan()[^128..]);
+            rsa.TrySignData(ToBeSigned, MySignature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1, out _);
         }
     }
 
-    public Transaction(ReadOnlySpan<byte> buffer) {
+    public Transaction(ReadOnlySpan<byte> buffer) : this(buffer.ToArray()) {
+    }
+
+    public Transaction(byte[] buffer) {
         Contract.Assert(buffer.Length == BinaryLength, "Invalid buffer length");
-        Data = buffer.ToArray();
+        Data = buffer;
         using (RSACryptoServiceProvider rsa = new()) {
             rsa.ImportRSAPublicKey(Sender, out _);
             Contract.Assert(
-                rsa.VerifyData(buffer[..^128], Signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
+                rsa.VerifyData(ToBeSigned, Signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
                 "Invalid signature");
         }
     }
+
+    public override string ToString() =>
+        $"{Convert.ToHexString(Sender)} -> {Convert.ToHexString(Receiver)} {MicroAmount}+{MicroFee}";
 }
 
 public class Wallet : IDisposable {
     public const string WalletFile = "wallet.dat";
     private readonly byte[] _data;
-    public ReadOnlySpan<byte> PublicKey => _data.AsSpan()[..140];
     private Span<byte> MyPrivateKey => _data.AsSpan()[140..];
+    public ReadOnlySpan<byte> PublicKey => _data.AsSpan()[..140];
     public ReadOnlySpan<byte> PrivateKey => MyPrivateKey;
 
     public Wallet() {
@@ -257,7 +269,7 @@ public class Wallet : IDisposable {
 public class ByteArrayComparer : EqualityComparer<byte[]> {
     public static readonly ByteArrayComparer Instance = new();
 
-    private ByteArrayComparer() {
+    private ByteArrayComparer() { // don't instantiate - use static ByteArrayComparer.Instance
     }
 
     public override bool Equals(byte[] first, byte[] second) {
