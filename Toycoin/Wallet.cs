@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 namespace Toycoin;
 
 public class Wallet : IDisposable {
-    public const string WalletFile = "wallet.dat";
+    private const string WalletFile = "wallet.dat";
     private readonly byte[] _data;
     private Span<byte> MyPrivateKey => _data.AsSpan()[140..];
     public ReadOnlySpan<byte> PublicKey => _data.AsSpan()[..140];

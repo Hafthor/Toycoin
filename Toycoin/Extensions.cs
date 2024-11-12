@@ -1,7 +1,7 @@
 namespace Toycoin;
 
 public static class Extensions {
-    public static byte[] Concat(this IList<byte[]> arrays) {
+    public static byte[] Coalesce(this IList<byte[]> arrays) {
         if (arrays.Count == 0) return [];
         if (arrays.Count == 1) return arrays[0];
         var result = new byte[arrays.Sum(a => a.Length)];

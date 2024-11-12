@@ -32,9 +32,9 @@ public class Block {
         });
         bc.ValidateTransactions(transactions, totalMicroRewardAmount);
         return [
-            .. transactions.Select(tx => tx.Data).ToArray().Concat(),
+            .. transactions.Select(tx => tx.Data).ToArray().Coalesce(),
             .. myPublicKey,
-            ..BitConverter.GetBytes(totalMicroRewardAmount)
+            ..BitConverter.GetBytes(totalMicroRewardAmount),
         ];
     }
 

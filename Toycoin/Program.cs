@@ -24,7 +24,7 @@ public static class Program {
             var block = bc.Mine(myPublicKey, mineTxs);
             var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
             var hashes = block.HashCount;
-            Console.WriteLine("{0} {1:N0} {2:N3}s {3:N3}Mhps", bc.LastBlock, hashes, elapsed, hashes / elapsed / 1E6);
+            Console.WriteLine($"{bc.LastBlock} {hashes:N0} {elapsed:N3}s {hashes / elapsed / 1E6:N3}Mhps");
         }
     }
 }

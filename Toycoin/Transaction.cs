@@ -25,7 +25,7 @@ public class Transaction {
             .. BitConverter.GetBytes(microAmount),
             .. sender,
             .. BitConverter.GetBytes(microFee),
-            .. new byte[128] // signature
+            .. new byte[128], // signature
         ];
         using (RSACryptoServiceProvider rsa = new()) {
             rsa.ImportRSAPrivateKey(privateKey, out _);
@@ -41,9 +41,8 @@ public class Transaction {
         Data = buffer;
         using (RSACryptoServiceProvider rsa = new()) {
             rsa.ImportRSAPublicKey(Sender, out _);
-            Contract.Assert(
-                rsa.VerifyData(ToBeSigned, Signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
-                "Invalid signature");
+            var valid = rsa.VerifyData(ToBeSigned, Signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            Contract.Assert(valid, "Invalid signature");
         }
     }
 

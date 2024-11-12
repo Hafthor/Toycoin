@@ -3,7 +3,7 @@ using System.Diagnostics.Contracts;
 namespace Toycoin;
 
 public class Blockchain {
-    public const string BlockchainFile = "blockchain.txt";
+    private const string BlockchainFile = "blockchain.txt";
     public Block LastBlock { get; private set; }
     public byte[] Difficulty { get; } = [0, 0, 0]; // 3 leading zeros
     public ulong MicroReward { get; } = 1_000_000; // 1 toycoin
@@ -72,7 +72,7 @@ public class Blockchain {
         return LastBlock;
     }
 
-    private int _previousSpinner = 0;
+    private int _previousSpinner = -1;
 
     public void Spinner() {
         if (_quiet) return;
