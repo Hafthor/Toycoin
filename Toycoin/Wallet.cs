@@ -4,28 +4,26 @@ namespace Toycoin;
 
 public class Wallet : IDisposable {
     private const string WalletFile = "wallet.dat";
-    private readonly byte[] _data;
-    private Span<byte> MyPrivateKey => _data.AsSpan()[140..];
-    public ReadOnlySpan<byte> PublicKey => _data.AsSpan()[..140];
-    public ReadOnlySpan<byte> PrivateKey => MyPrivateKey;
+    private readonly byte[] _privateKey, _publicKey;
+    public ReadOnlySpan<byte> PublicKey => _publicKey.AsSpan();
 
     public Wallet() {
-        if (File.Exists(WalletFile)) {
-            _data = File.ReadAllBytes(WalletFile);
-        } else {
-            using (RSACryptoServiceProvider rsa = new()) {
-                byte[] publicKey = rsa.ExportRSAPublicKey(), privateKey = rsa.ExportRSAPrivateKey();
-                _data = [.. publicKey, .. privateKey];
-                Array.Clear(privateKey); // clear copy of private key from memory for security
+        using (RSACryptoServiceProvider rsa = new()) {
+            if (File.Exists(WalletFile)) {
+                _privateKey = File.ReadAllBytes(WalletFile);
+                rsa.ImportRSAPrivateKey(_privateKey, out _);
+            } else {
+                _privateKey = rsa.ExportRSAPrivateKey();
+                File.WriteAllBytes(WalletFile, _privateKey);
             }
-            File.WriteAllBytes(WalletFile, _data);
+            _publicKey = rsa.ExportRSAPublicKey();
         }
     }
 
     public Transaction CreateTransaction(ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee) =>
-        new(PublicKey, receiver, microAmount, microFee, PrivateKey);
+        new(PublicKey, receiver, microAmount, microFee, _privateKey);
 
-    public override string ToString() => $"{Convert.ToHexString(PublicKey)}";
+    public override string ToString() => $"{Convert.ToHexString(_publicKey)}";
 
-    public void Dispose() => MyPrivateKey.Clear(); // clear private key from memory for security
+    public void Dispose() => Array.Clear(_privateKey); // clear private key from memory for security
 }
