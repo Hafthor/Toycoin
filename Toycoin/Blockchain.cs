@@ -9,7 +9,7 @@ public class Blockchain {
     public ulong MicroReward { get; } = 1_000_000; // 1 toycoin
     public int MaxTransactions { get; } = 10;
 
-    private DateTime _lastFileDateTime = DateTime.MinValue;
+    private DateTime _lastFileDateTime = DateTime.FromFileTimeUtc(0);
     private int _lastBlockCount = 0;
 
     private readonly Dictionary<byte[], ulong> _balances = new(ByteArrayComparer.Instance);
@@ -52,7 +52,7 @@ public class Blockchain {
         UpdateBalances(transactions, Array.Empty<byte>(), totalMicroRewardAmount, justCheck: true);
 
     public Blockchain(Action<Block> onBlockLoad) {
-        if (File.Exists(BlockchainFile)) LoadNewBlocks(onBlockLoad);
+        if (CheckForNewBlocks()) LoadNewBlocks(onBlockLoad);
     }
 
     public bool CheckBlock(Block block) => block.Hash.IsLessThan(Difficulty);
@@ -67,8 +67,7 @@ public class Blockchain {
         }
     }
 
-    public bool CheckForNewBlocks() => File.Exists(BlockchainFile) &&
-                                       _lastFileDateTime != File.GetLastWriteTimeUtc(BlockchainFile);
+    public bool CheckForNewBlocks() => _lastFileDateTime != File.GetLastWriteTimeUtc(BlockchainFile);
 
     public void Commit(Block block) {
         LastBlock = block;
