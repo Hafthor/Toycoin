@@ -33,15 +33,16 @@ public class Block {
         });
         bc.ValidateTransactions(transactions, totalMicroRewardAmount);
 
-        int bufferSize = 140 + 8 + transactions.Count * Transaction.BinaryLength;
+        int bufferSize = transactions.Count * Transaction.BinaryLength + 140 + 8;
         byte[] buffer = new byte[bufferSize];
-        myPublicKey.CopyTo(buffer.AsSpan()[..140]);
-        BitConverter.TryWriteBytes(buffer.AsSpan()[140..148], totalMicroRewardAmount);
-        int ptr = 148;
+        int ptr = 0;
         foreach(var tx in transactions) {
             tx.Data.CopyTo(buffer.AsSpan()[ptr..]);
             ptr += Transaction.BinaryLength;
         }
+        myPublicKey.CopyTo(buffer.AsSpan()[ptr..]);
+        ptr += 140;
+        BitConverter.TryWriteBytes(buffer.AsSpan()[ptr..], totalMicroRewardAmount);
         return buffer;
     }
 
