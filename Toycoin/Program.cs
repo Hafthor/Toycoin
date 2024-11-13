@@ -25,11 +25,11 @@ public static class Program {
             Parallel.For(0L, Environment.ProcessorCount, p => {
                 var block = new Block(bc, bc.LastBlock, mineTxs, myPublicKey);
                 if (p == 0) {
-                    for (; toBeMined > 0 && !block.MineStep(bc); hashCount++)
+                    for (; toBeMined > 0 && !block.MineStep(bc); Interlocked.Increment(ref hashCount))
                         if (block.Nonce[0] == 0)
                             Spinner();
                 } else {
-                    for (; toBeMined > 0 && !block.MineStep(bc); hashCount++) ;
+                    for (; toBeMined > 0 && !block.MineStep(bc); Interlocked.Increment(ref hashCount)) ;
                 }
                 if (Interlocked.CompareExchange(ref toBeMined, 0, 1) == 1) bc.Commit(block);
             });
