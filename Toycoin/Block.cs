@@ -55,10 +55,10 @@ public class Block {
         Contract.Assert(hash == null || Hash.IsLessThan(bc.Difficulty) && Hash.SequenceEqual(hash), "Invalid hash");
     }
 
-    public bool MineStep(Blockchain bc) {
+    public Block IncrementAndHash() {
         for (int i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ; // increment nonce
         SHA256.TryHashData(ToBeHashed, MyHash, out _);
-        return Hash.IsLessThan(bc.Difficulty);
+        return this;
     }
 
     public string FileString() =>

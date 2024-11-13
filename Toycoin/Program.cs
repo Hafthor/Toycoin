@@ -24,17 +24,31 @@ public static class Program {
             int hashCount = 0, toBeMined = 1;
             Parallel.For(0L, Environment.ProcessorCount, p => {
                 var block = new Block(bc, bc.LastBlock, mineTxs, myPublicKey);
+                bool valid = false;
                 if (p == 0) {
-                    for (; toBeMined > 0 && !block.MineStep(bc); Interlocked.Increment(ref hashCount))
-                        if (block.Nonce[0] == 0)
+                    for (; toBeMined > 0 && !valid; Interlocked.Increment(ref hashCount)) {
+                        if (block.Nonce[0] == 0) {
                             Spinner();
+                            if (bc.CheckForNewBlocks()) {
+                                Interlocked.CompareExchange(ref toBeMined, 0, 1);
+                            }
+                        }
+                        valid = bc.CheckBlock(block.IncrementAndHash());
+                    }
                 } else {
-                    for (; toBeMined > 0 && !block.MineStep(bc); Interlocked.Increment(ref hashCount)) ;
+                    for (; toBeMined > 0 && !valid; Interlocked.Increment(ref hashCount)) {
+                        valid = bc.CheckBlock(block.IncrementAndHash());
+                    }
                 }
-                if (Interlocked.CompareExchange(ref toBeMined, 0, 1) == 1) bc.Commit(block);
+                if (valid && Interlocked.CompareExchange(ref toBeMined, 0, 1) == 1) bc.Commit(block);
             });
-            var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
-            Console.WriteLine($"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {hashCount / elapsed / 1E6:N3}Mhps");
+            if (bc.CheckForNewBlocks()) {
+                Console.WriteLine("File changed. Loading new blocks...");
+                bc.LoadNewBlocks();
+            } else {
+                var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
+                Console.WriteLine($"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {hashCount / elapsed / 1E6:N3}Mhps");
+            }
         }
     }
     

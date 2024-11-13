@@ -11,6 +11,9 @@ public class Blockchain {
 
     private readonly bool _quiet;
 
+    private DateTime _lastFileDateTime = DateTime.MinValue;
+    private int _lastBlockCount = 0;
+
     private readonly Dictionary<byte[], ulong> _balances = new(ByteArrayComparer.Instance);
 
     private void UpdateBalances(Block block) =>
@@ -57,17 +60,30 @@ public class Blockchain {
 
     public Blockchain(bool quiet = true) {
         _quiet = quiet;
-        if (!File.Exists(BlockchainFile)) return;
-        foreach (var line in File.ReadAllLines(BlockchainFile)) {
+        if (!File.Exists(BlockchainFile)) LoadNewBlocks();
+    }
+
+    public bool CheckBlock(Block block) => block.Hash.IsLessThan(Difficulty);
+    
+    public void LoadNewBlocks() {
+        _lastFileDateTime = File.GetLastWriteTimeUtc(BlockchainFile);
+        foreach (var line in File.ReadAllLines(BlockchainFile).Skip(_lastBlockCount)) {
+            _lastBlockCount++;
             var ss = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
             UpdateBalances(LastBlock = new(this, LastBlock, ss[1], ss[0], ss[2]));
-            if (!quiet) Console.WriteLine(LastBlock);
+            if (!_quiet) Console.WriteLine(LastBlock);
         }
     }
+
+    public bool CheckForNewBlocks() => _lastFileDateTime != File.GetLastWriteTimeUtc(BlockchainFile);
 
     public void Commit(Block block) {
         LastBlock = block;
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, MicroReward);
-        File.AppendAllLines(BlockchainFile, [LastBlock.FileString()]);
+        string fileString = LastBlock.FileString();
+        Contract.Assert(!CheckForNewBlocks(), "File has changed");
+        File.AppendAllLines(BlockchainFile, [fileString]);
+        _lastFileDateTime = File.GetLastWriteTimeUtc(BlockchainFile);
+        _lastBlockCount++;
     }
 }
