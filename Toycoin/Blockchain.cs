@@ -9,8 +9,6 @@ public class Blockchain {
     public ulong MicroReward { get; } = 1_000_000; // 1 toycoin
     public int MaxTransactions { get; } = 10;
 
-    private readonly bool _quiet;
-
     private DateTime _lastFileDateTime = DateTime.MinValue;
     private int _lastBlockCount = 0;
 
@@ -47,31 +45,25 @@ public class Blockchain {
                 foreach (var (key, value) in subs)
                     _balances[key] -= value; // _balances MUST always have a value for key
             }
-            if (!_quiet) {
-                Console.WriteLine($"reward: {Convert.ToHexString(rewardPublicKey)} {totalMicroRewardAmount}");
-                Console.WriteLine($"balances: {string.Join(", ",
-                    _balances.Select(kv => $"{Convert.ToHexString(kv.Key)}={kv.Value}"))}");
-            }
         }
     }
 
     public void ValidateTransactions(IEnumerable<Transaction> transactions, ulong totalMicroRewardAmount) =>
         UpdateBalances(transactions, Array.Empty<byte>(), totalMicroRewardAmount, justCheck: true);
 
-    public Blockchain(bool quiet = true) {
-        _quiet = quiet;
-        if (!File.Exists(BlockchainFile)) LoadNewBlocks();
+    public Blockchain(Action<Block> onBlockLoad) {
+        if (File.Exists(BlockchainFile)) LoadNewBlocks(onBlockLoad);
     }
 
     public bool CheckBlock(Block block) => block.Hash.IsLessThan(Difficulty);
     
-    public void LoadNewBlocks() {
+    public void LoadNewBlocks(Action<Block> onBlockLoad) {
         _lastFileDateTime = File.GetLastWriteTimeUtc(BlockchainFile);
         foreach (var line in File.ReadAllLines(BlockchainFile).Skip(_lastBlockCount)) {
             _lastBlockCount++;
             var ss = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
             UpdateBalances(LastBlock = new(this, LastBlock, ss[1], ss[0], ss[2]));
-            if (!_quiet) Console.WriteLine(LastBlock);
+            onBlockLoad?.Invoke(LastBlock);
         }
     }
 

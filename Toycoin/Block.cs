@@ -19,22 +19,30 @@ public class Block {
     public ReadOnlySpan<byte> RewardPublicKey => TransactionData[^148..^8];
     public ulong TotalMicroRewardAmount => BitConverter.ToUInt64(TransactionData[^8..]);
 
-    public Block(Blockchain bc, Block previous, IList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) :
+    public Block(Blockchain bc, Block previous, IReadOnlyList<Transaction> transactions, 
+        ReadOnlySpan<byte> myPublicKey) :
         this(bc, previous, MakeData(bc, transactions, myPublicKey)) {
     }
 
-    private static byte[] MakeData(Blockchain bc, IList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) {
+    private static byte[] MakeData(Blockchain bc, IReadOnlyList<Transaction> transactions, 
+        ReadOnlySpan<byte> myPublicKey) {
         var totalMicroRewardAmount = transactions.Aggregate(bc.MicroReward, (sum, tx) => {
             checked {
                 return sum + tx.MicroFee;
             }
         });
         bc.ValidateTransactions(transactions, totalMicroRewardAmount);
-        return [
-            .. transactions.Select(tx => tx.Data).ToArray().Coalesce(),
-            .. myPublicKey,
-            ..BitConverter.GetBytes(totalMicroRewardAmount),
-        ];
+
+        int bufferSize = 140 + 8 + transactions.Count * Transaction.BinaryLength;
+        byte[] buffer = new byte[bufferSize];
+        myPublicKey.CopyTo(buffer.AsSpan()[..140]);
+        BitConverter.TryWriteBytes(buffer.AsSpan()[140..148], totalMicroRewardAmount);
+        int ptr = 148;
+        foreach(var tx in transactions) {
+            tx.Data.CopyTo(buffer.AsSpan()[ptr..]);
+            ptr += Transaction.BinaryLength;
+        }
+        return buffer;
     }
 
     public Block(Blockchain bc, Block previous, ReadOnlySpan<byte> data, byte[] nonce = null, byte[] hash = null) {
