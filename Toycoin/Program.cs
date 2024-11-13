@@ -4,10 +4,10 @@ namespace Toycoin;
 
 public static class Program {
     public static void Main() {
-        ReadOnlySpan<byte> myPublicKey;
+        byte[] myPublicKey;
         List<Transaction> transactions = [];
         using (Wallet wallet = new()) {
-            myPublicKey = wallet.PublicKey;
+            myPublicKey = wallet.PublicKey.ToArray();
             var tx = wallet.CreateTransaction(myPublicKey, 0, 0); // create a dummy transaction
             Console.WriteLine($"tx: {tx}");
             transactions.Add(tx);
@@ -21,10 +21,29 @@ public static class Program {
             var mineTxs = transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList();
             transactions = transactions.Except(mineTxs).ToList(); // remove the transactions we are mining for
             var startTime = Stopwatch.GetTimestamp();
-            var block = bc.Mine(myPublicKey, mineTxs);
+            int hashCount = 0, toBeMined = 1;
+            Parallel.For(0L, Environment.ProcessorCount, p => {
+                var block = new Block(bc, bc.LastBlock, mineTxs, myPublicKey);
+                if (p == 0) {
+                    for (; toBeMined > 0 && !block.MineStep(bc); hashCount++)
+                        if (block.Nonce[0] == 0)
+                            Spinner();
+                } else {
+                    for (; toBeMined > 0 && !block.MineStep(bc); hashCount++) ;
+                }
+                if (Interlocked.CompareExchange(ref toBeMined, 0, 1) == 1) bc.Commit(block);
+            });
             var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
-            var hashes = block.HashCount;
-            Console.WriteLine($"{bc.LastBlock} {hashes:N0} {elapsed:N3}s {hashes / elapsed / 1E6:N3}Mhps");
+            Console.WriteLine($"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {hashCount / elapsed / 1E6:N3}Mhps");
         }
+    }
+    
+    private static int _previousSpinner = -1;
+
+    public static void Spinner() {
+        var t = DateTime.Now.Millisecond / 100;
+        if (t == _previousSpinner) return;
+        Console.Write("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[_previousSpinner = t]);
+        Console.Write('\b');
     }
 }

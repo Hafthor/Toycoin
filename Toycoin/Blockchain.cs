@@ -65,21 +65,9 @@ public class Blockchain {
         }
     }
 
-    public Block Mine(ReadOnlySpan<byte> myPublicKey, List<Transaction> transactions) {
-        LastBlock = new Block(this, LastBlock, transactions, myPublicKey);
-        UpdateBalances(transactions, myPublicKey, MicroReward);
+    public void Commit(Block block) {
+        LastBlock = block;
+        UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, MicroReward);
         File.AppendAllLines(BlockchainFile, [LastBlock.FileString()]);
-        transactions.Clear();
-        return LastBlock;
-    }
-
-    private int _previousSpinner = -1;
-
-    public void Spinner() {
-        if (_quiet) return;
-        var t = DateTime.Now.Millisecond / 100;
-        if (t == _previousSpinner) return;
-        Console.Write("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[_previousSpinner = t]);
-        Console.Write('\b');
     }
 }

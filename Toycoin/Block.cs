@@ -18,7 +18,6 @@ public class Block {
     public ReadOnlySpan<byte> Transactions => TransactionData[..^148];
     public ReadOnlySpan<byte> RewardPublicKey => TransactionData[^148..^8];
     public ulong TotalMicroRewardAmount => BitConverter.ToUInt64(TransactionData[^8..]);
-    public int HashCount { get; }
 
     public Block(Blockchain bc, Block previous, IList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) :
         this(bc, previous, MakeData(bc, transactions, myPublicKey)) {
@@ -53,16 +52,13 @@ public class Block {
         ];
         VerifyBlockData(bc);
         if (nonce == null) new Random().NextBytes(MyNonce);
+        Contract.Assert(hash == null || Hash.IsLessThan(bc.Difficulty) && Hash.SequenceEqual(hash), "Invalid hash");
+    }
+
+    public bool MineStep(Blockchain bc) {
+        for (int i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ; // increment nonce
         SHA256.TryHashData(ToBeHashed, MyHash, out _);
-        if (hash == null) {
-            for (int i; !Hash.IsLessThan(bc.Difficulty); HashCount++) { // mine loop
-                for (i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ; // increment nonce
-                if (i > 1) bc.Spinner();
-                SHA256.TryHashData(ToBeHashed, MyHash, out _);
-            }
-        } else {
-            Contract.Assert(Hash.IsLessThan(bc.Difficulty) && Hash.SequenceEqual(hash), "Invalid hash");
-        }
+        return Hash.IsLessThan(bc.Difficulty);
     }
 
     public string FileString() =>
