@@ -32,12 +32,13 @@ public class Blockchain {
             Contract.Assert(checkReward == totalMicroRewardAmount, "Invalid total reward amount");
             adds[rewardPublicKeyArray] = adds.GetValueOrDefault(rewardPublicKeyArray, 0ul) + totalMicroRewardAmount;
 
-            // update balances
+            // check and update balances
             lock (_balances) {
-                // perform adds first to avoid negative balances
                 foreach (var (key, value) in subs)
-                    Contract.Assert(_balances.GetValueOrDefault(key, 0ul) >= value, "Insufficient funds");
+                    Contract.Assert(_balances.GetValueOrDefault(key, 0ul) + adds.GetValueOrDefault(key, 0ul) >= value,
+                        "Insufficient funds");
                 if (justCheck) return;
+                // perform adds first to avoid negative balances
                 foreach (var (key, value) in adds)
                     _balances[key] = _balances.GetValueOrDefault(key, 0ul) + value;
                 foreach (var (key, value) in subs)
