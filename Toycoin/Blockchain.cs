@@ -67,7 +67,8 @@ public class Blockchain {
         }
     }
 
-    public bool CheckForNewBlocks() => _lastFileDateTime != File.GetLastWriteTimeUtc(BlockchainFile);
+    public bool CheckForNewBlocks() => File.Exists(BlockchainFile) &&
+                                       _lastFileDateTime != File.GetLastWriteTimeUtc(BlockchainFile);
 
     public void Commit(Block block) {
         LastBlock = block;
