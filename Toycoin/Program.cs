@@ -7,19 +7,25 @@ public static class Program {
     public static int Main(string[] args) {
         Console.OutputEncoding = System.Text.Encoding.UTF8; // so we can display the spinner properly
         if (args.Length > 0 && args[0] is "-h" or "--help" or "/?") {
-            Console.WriteLine(@"Usage..: Toycoin [{walletFilename} [{blockchainFilename} [{threadCount}]]]");
-            Console.WriteLine($"Default: Toycoin wallet.dat blockchain.dat {Environment.ProcessorCount}");
+            Console.WriteLine(@"Usage..: Toycoin [-w {walletFilename}] [-b {blockchainFilename}] [-t {threadCount}]");
+            Console.WriteLine($"Default: Toycoin -w wallet.dat -b blockchain.dat -t {Environment.ProcessorCount}");
             return 0;
         }
-        Console.Write("\e[?25l"); // hide cursor
-        Console.CancelKeyPress += (_, _) => {
-            Console.Write("\e[?25h"); // show cursor
-            Environment.Exit(-1);
-        };
-        string walletFilename = args.Length > 0 ? args[0] : null;
-        string blockchainFilename = args.Length > 1 ? args[1] : null;
-        int threadCount = args.Length > 2 ? int.Parse(args[2]) : Environment.ProcessorCount;
-        Contract.Assert(threadCount > 0, "Invalid thread count");
+        
+        string walletFilename = null, blockchainFilename = null;
+        int threadCount = Environment.ProcessorCount;
+        for (int i = 0; i < args.Length; i++) {
+            if (args[i] == "-w") {
+                walletFilename = args[++i];
+            } else if (args[i] == "-b") {
+                blockchainFilename = args[++i];
+            } else if (args[i] == "-t") {
+                threadCount = int.Parse(args[++i]);
+                Contract.Assert(threadCount > 0, "Invalid thread count");
+            } else {
+                Contract.Assert(false, "Invalid argument " + args[i]);
+            }
+        }
         
         byte[] myPublicKey;
         List<Transaction> transactions = [];
@@ -33,6 +39,13 @@ public static class Program {
         Console.WriteLine("Loading...");
         var bc = new Blockchain(blockchainFilename, Console.WriteLine);
         Console.WriteLine("Mining...");
+        
+        Console.CancelKeyPress += (_, _) => {
+            Console.Write("\e[?25h"); // show cursor
+            Environment.Exit(-1);
+        };
+        Console.Write("\e[?25l"); // hide cursor
+        
         for (;;) { // mining loop
             // get the highest paying transactions
             var mineTxs = transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList();
