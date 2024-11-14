@@ -3,18 +3,19 @@ using System.Security.Cryptography;
 namespace Toycoin;
 
 public class Wallet : IDisposable {
-    private const string WalletFile = "wallet.dat";
+    private readonly string _walletFile = "wallet.dat";
     private readonly byte[] _privateKey, _publicKey;
     public ReadOnlySpan<byte> PublicKey => _publicKey.AsSpan();
 
-    public Wallet() {
+    public Wallet(string walletFilename = null) {
+        if (walletFilename != null) _walletFile = walletFilename;
         using (RSACryptoServiceProvider rsa = new()) {
-            if (File.Exists(WalletFile)) {
-                _privateKey = File.ReadAllBytes(WalletFile);
+            if (File.Exists(_walletFile)) {
+                _privateKey = File.ReadAllBytes(_walletFile);
                 rsa.ImportRSAPrivateKey(_privateKey, out _);
             } else {
                 _privateKey = rsa.ExportRSAPrivateKey();
-                File.WriteAllBytes(WalletFile, _privateKey);
+                File.WriteAllBytes(_walletFile, _privateKey);
             }
             _publicKey = rsa.ExportRSAPublicKey();
         }
