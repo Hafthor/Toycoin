@@ -12,6 +12,10 @@ public static class Program {
             return 0;
         }
         Console.Write("\e[?25l"); // hide cursor
+        Console.CancelKeyPress += (_, _) => {
+            Console.Write("\e[?25h"); // show cursor
+            Environment.Exit(-1);
+        };
         string walletFilename = args.Length > 0 ? args[0] : null;
         string blockchainFilename = args.Length > 1 ? args[1] : null;
         int threadCount = args.Length > 2 ? int.Parse(args[2]) : Environment.ProcessorCount;
