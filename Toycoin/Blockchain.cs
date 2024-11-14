@@ -3,17 +3,16 @@ using System.Diagnostics.Contracts;
 namespace Toycoin;
 
 public class Blockchain {
-    private readonly string _blockchainFile = "blockchain.txt";
+    private readonly string blockchainFile = "blockchain.txt";
     public Block LastBlock { get; private set; }
     public byte[] Difficulty { get; } = [0, 0, 0]; // 3 leading zeros
     public ulong MicroReward { get; } = 1_000_000; // 1 toycoin
     public int MaxTransactions { get; } = 10;
 
-    private DateTime _lastFileDateTime = DateTime.FromFileTimeUtc(0);
-    private int _lastBlockCount = 0;
+    private DateTime lastFileDateTime = DateTime.FromFileTimeUtc(0);
 
-    private readonly Dictionary<byte[], ulong> _balances = new(ByteArrayComparer.Instance);
-    private readonly HashSet<byte[]> _signatures = new(ByteArrayComparer.Instance);
+    private readonly Dictionary<byte[], ulong> balances = new(ByteArrayComparer.Instance);
+    private readonly HashSet<byte[]> signatures = new(ByteArrayComparer.Instance);
 
     private void UpdateBalances(Block block) =>
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
@@ -32,24 +31,24 @@ public class Blockchain {
                 subs[sender] = subs.GetValueOrDefault(sender, 0ul) + tx.MicroAmount + tx.MicroFee;
                 checkReward += tx.MicroFee;
                 byte[] signature = tx.Signature.ToArray();
-                Contract.Assert(!_signatures.Contains(signature), "Replayed transaction");
+                Contract.Assert(!signatures.Contains(signature), "Replayed transaction");
                 Contract.Assert(newSignatures.Add(signature), "Duplicate transaction");
             }
             Contract.Assert(checkReward == totalMicroRewardAmount, "Invalid total reward amount");
             adds[rewardPublicKeyArray] = adds.GetValueOrDefault(rewardPublicKeyArray, 0ul) + totalMicroRewardAmount;
 
             // check and update balances
-            lock (_balances) {
+            lock (balances) {
                 foreach (var (key, value) in subs)
-                    Contract.Assert(_balances.GetValueOrDefault(key, 0ul) + adds.GetValueOrDefault(key, 0ul) >= value,
+                    Contract.Assert(balances.GetValueOrDefault(key, 0ul) + adds.GetValueOrDefault(key, 0ul) >= value,
                         "Insufficient funds");
                 if (justCheck) return;
                 // perform adds first to avoid negative balances
                 foreach (var (key, value) in adds)
-                    _balances[key] = _balances.GetValueOrDefault(key, 0ul) + value;
+                    balances[key] = balances.GetValueOrDefault(key, 0ul) + value;
                 foreach (var (key, value) in subs)
-                    _balances[key] -= value; // _balances MUST always have a value for key
-                _signatures.UnionWith(newSignatures);
+                    balances[key] -= value; // balances MUST always have a value for key
+                signatures.UnionWith(newSignatures);
             }
         }
     }
@@ -58,34 +57,35 @@ public class Blockchain {
         UpdateBalances(transactions, rewardPublicKey, totalMicroRewardAmount, justCheck: true);
 
     public Blockchain(string blockchainFilename = null, Action<Block> onBlockLoad = null) {
-        if (blockchainFilename != null) _blockchainFile = blockchainFilename;
+        if (blockchainFilename != null) blockchainFile = blockchainFilename;
         LoadNewBlocks(onBlockLoad);
     }
 
     public bool CheckBlock(Block block) => block.Hash.IsLessThan(Difficulty);
     
     public bool LoadNewBlocks(Action<Block> onBlockLoad) {
-        var newFileDateTime = File.GetLastWriteTimeUtc(_blockchainFile);
-        if (_lastFileDateTime == newFileDateTime) return false;
-        _lastFileDateTime = newFileDateTime;
-        foreach (var line in File.ReadAllLines(_blockchainFile).Skip(_lastBlockCount)) {
-            _lastBlockCount++;
+        var newFileDateTime = File.GetLastWriteTimeUtc(blockchainFile);
+        if (lastFileDateTime == newFileDateTime) return false;
+        lastFileDateTime = newFileDateTime;
+        int skip = (int)(LastBlock?.BlockId ?? 0);
+        foreach (var line in File.ReadAllLines(blockchainFile).Skip(skip)) {
             var ss = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
-            UpdateBalances(LastBlock = new(this, LastBlock, ss[1], ss[0], ss[2]));
+            Block block = new(this, LastBlock, ss[1], ss[0], ss[2]);
+            UpdateBalances(LastBlock = block);
             onBlockLoad?.Invoke(LastBlock);
         }
         return true;
     }
 
-    public bool CheckForNewBlocks() => _lastFileDateTime != File.GetLastWriteTimeUtc(_blockchainFile);
+    public bool CheckForNewBlocks() => lastFileDateTime != File.GetLastWriteTimeUtc(blockchainFile);
 
     public void Commit(Block block) {
+        Contract.Assert(block.BlockId == (LastBlock?.BlockId ?? 0) + 1, "Invalid block id");
         LastBlock = block;
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
         string fileString = LastBlock.FileString();
         Contract.Assert(!CheckForNewBlocks(), "File has changed");
-        File.AppendAllLines(_blockchainFile, [fileString]);
-        _lastFileDateTime = File.GetLastWriteTimeUtc(_blockchainFile);
-        _lastBlockCount++;
+        File.AppendAllLines(blockchainFile, [fileString]);
+        lastFileDateTime = File.GetLastWriteTimeUtc(blockchainFile);
     }
 }

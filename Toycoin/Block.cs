@@ -5,29 +5,29 @@ namespace Toycoin;
 
 public class Block {
     public Block Previous { get; }
-    
+
     // PreviousHash(32) + BlockId(8) + Nonce(32) + Transactions(424*n) + RewardPublicKey(140) + TotalMicroRewardAmount(8) + Hash(32)
-    public byte[] Data { get; }
-    public ReadOnlySpan<byte> PreviousHash => Data.AsSpan()[..32];
-    private Span<byte> MyBlockId => Data.AsSpan()[32..40];
-    public ulong BlockId => BitConverter.ToUInt64(MyBlockId);
-    private Span<byte> MyNonce => Data.AsSpan()[40..72];
-    public ReadOnlySpan<byte> Nonce => MyNonce;
-    public ReadOnlySpan<byte> TransactionData => Data.AsSpan()[72..^32];
-    private ReadOnlySpan<byte> ToBeHashed => Data.AsSpan()[..^32];
-    private Span<byte> MyHash => Data.AsSpan()[^32..];
-    public ReadOnlySpan<byte> Hash => MyHash;
+    private byte[] data { get; }
+    public ReadOnlySpan<byte> PreviousHash => data.AsSpan()[..32];
+    private Span<byte> blockId => data.AsSpan()[32..40];
+    public ulong BlockId => BitConverter.ToUInt64(blockId);
+    private Span<byte> nonce => data.AsSpan()[40..72];
+    public ReadOnlySpan<byte> Nonce => nonce;
+    public ReadOnlySpan<byte> TransactionData => data.AsSpan()[72..^32];
+    private ReadOnlySpan<byte> toBeHashed => data.AsSpan()[..^32];
+    private Span<byte> hash => data.AsSpan()[^32..];
+    public ReadOnlySpan<byte> Hash => hash;
 
     public ReadOnlySpan<byte> Transactions => TransactionData[..^148];
     public ReadOnlySpan<byte> RewardPublicKey => TransactionData[^148..^8];
     public ulong TotalMicroRewardAmount => BitConverter.ToUInt64(TransactionData[^8..]);
 
-    public Block(Blockchain bc, Block previous, IReadOnlyList<Transaction> transactions, 
+    public Block(Blockchain bc, Block previous, IReadOnlyList<Transaction> transactions,
         ReadOnlySpan<byte> myPublicKey) :
         this(bc, previous, MakeData(bc, transactions, myPublicKey)) {
     }
 
-    private static byte[] MakeData(Blockchain bc, IReadOnlyList<Transaction> transactions, 
+    private static byte[] MakeData(Blockchain bc, IReadOnlyList<Transaction> transactions,
         ReadOnlySpan<byte> myPublicKey) {
         var totalMicroRewardAmount = transactions.Aggregate(bc.MicroReward, (sum, tx) => {
             checked {
@@ -39,7 +39,7 @@ public class Block {
         int bufferSize = transactions.Count * Transaction.BinaryLength + 140 + 8;
         byte[] buffer = new byte[bufferSize];
         int ptr = 0;
-        foreach(var tx in transactions) {
+        foreach (var tx in transactions) {
             tx.Data.CopyTo(buffer.AsSpan()[ptr..]);
             ptr += Transaction.BinaryLength;
         }
@@ -57,7 +57,7 @@ public class Block {
         Previous = previous;
         var previousHash = previous == null ? new byte[32] : previous.Hash;
         var blockId = previous == null ? 0ul : previous.BlockId + 1;
-        Data = [
+        this.data = [
             .. previousHash,
             .. BitConverter.GetBytes(blockId),
             .. nonce ?? new byte[32],
@@ -65,13 +65,13 @@ public class Block {
             .. hash ?? new byte[32]
         ];
         VerifyBlockData(bc, data[^148..^8]);
-        if (nonce == null) new Random().NextBytes(MyNonce);
+        if (nonce == null) new Random().NextBytes(this.nonce);
         Contract.Assert(hash == null || Hash.IsLessThan(bc.Difficulty) && Hash.SequenceEqual(hash), "Invalid hash");
     }
 
     public Block IncrementAndHash() {
-        for (int i = 0; i < Nonce.Length && ++MyNonce[i] == 0; i++) ; // increment nonce
-        SHA256.TryHashData(ToBeHashed, MyHash, out _);
+        for (int i = 0; i < Nonce.Length && ++nonce[i] == 0; i++) ; // increment nonce
+        SHA256.TryHashData(toBeHashed, hash, out _);
         return this;
     }
 

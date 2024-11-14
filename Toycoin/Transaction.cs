@@ -13,8 +13,8 @@ public class Transaction {
     public ReadOnlySpan<byte> Sender => Data.AsSpan()[156..296];
     public ulong MicroFee => BitConverter.ToUInt64(Data.AsSpan()[296..304]);
     public ReadOnlySpan<byte> ToBeSigned => Data.AsSpan()[..^128];
-    private Span<byte> MySignature => Data.AsSpan()[^128..];
-    public ReadOnlySpan<byte> Signature => MySignature;
+    private Span<byte> signature => Data.AsSpan()[^128..];
+    public ReadOnlySpan<byte> Signature => signature;
 
     public Transaction(ulong blockId, ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee, Wallet wallet) {
         Data = [
@@ -25,7 +25,7 @@ public class Transaction {
             .. BitConverter.GetBytes(microFee),
             .. new byte[128], // signature
         ];
-        wallet.SignData(ToBeSigned, MySignature);
+        wallet.SignData(ToBeSigned, signature);
     }
 
     public Transaction(ReadOnlySpan<byte> buffer) : this(buffer.ToArray()) {

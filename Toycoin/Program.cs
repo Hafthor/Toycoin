@@ -96,12 +96,12 @@ public static class Program {
         return new Transaction(bc.LastBlock?.BlockId ?? 0ul, receiver, amount, fee, wallet);
     }
 
-    private static int _previousSpinner = -1;
+    private static int previousSpinner = -1;
 
     private static void Spinner() {
         var t = DateTime.Now.Millisecond / 100;
-        if (t == _previousSpinner) return;
-        Console.Write("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[_previousSpinner = t]);
+        if (t == previousSpinner) return;
+        Console.Write("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[previousSpinner = t]);
         Console.Write('\b');
     }
 }
