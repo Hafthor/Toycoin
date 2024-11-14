@@ -11,6 +11,7 @@ public static class Program {
             Console.WriteLine($"Default: Toycoin wallet.dat blockchain.dat {Environment.ProcessorCount}");
             return 0;
         }
+        Console.Write("\e[?25l"); // hide cursor
         string walletFilename = args.Length > 0 ? args[0] : null;
         string blockchainFilename = args.Length > 1 ? args[1] : null;
         int threadCount = args.Length > 2 ? int.Parse(args[2]) : Environment.ProcessorCount;
