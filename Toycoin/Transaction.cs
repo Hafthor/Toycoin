@@ -1,5 +1,4 @@
 using System.Diagnostics.Contracts;
-using System.Security.Cryptography;
 
 namespace Toycoin;
 
