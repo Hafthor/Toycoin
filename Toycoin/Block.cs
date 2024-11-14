@@ -31,7 +31,7 @@ public class Block {
                 return sum + tx.MicroFee;
             }
         });
-        bc.ValidateTransactions(transactions, totalMicroRewardAmount);
+        bc.ValidateTransactions(transactions, myPublicKey, totalMicroRewardAmount);
 
         int bufferSize = transactions.Count * Transaction.BinaryLength + 140 + 8;
         byte[] buffer = new byte[bufferSize];
@@ -59,7 +59,7 @@ public class Block {
             .. data,
             .. hash ?? new byte[32]
         ];
-        VerifyBlockData(bc);
+        VerifyBlockData(bc, data[^148..^8]);
         if (nonce == null) new Random().NextBytes(MyNonce);
         Contract.Assert(hash == null || Hash.IsLessThan(bc.Difficulty) && Hash.SequenceEqual(hash), "Invalid hash");
     }
@@ -83,5 +83,6 @@ public class Block {
             yield return new(TransactionData[si..(si += Transaction.BinaryLength)]);
     }
 
-    private void VerifyBlockData(Blockchain bc) => bc.ValidateTransactions(ReadTransactions(), TotalMicroRewardAmount);
+    private void VerifyBlockData(Blockchain bc, ReadOnlySpan<byte> myPublicKey) =>
+        bc.ValidateTransactions(ReadTransactions(), myPublicKey, TotalMicroRewardAmount);
 }

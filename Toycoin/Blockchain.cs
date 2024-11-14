@@ -48,8 +48,8 @@ public class Blockchain {
         }
     }
 
-    public void ValidateTransactions(IEnumerable<Transaction> transactions, ulong totalMicroRewardAmount) =>
-        UpdateBalances(transactions, Array.Empty<byte>(), totalMicroRewardAmount, justCheck: true);
+    public void ValidateTransactions(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey, ulong totalMicroRewardAmount) =>
+        UpdateBalances(transactions, rewardPublicKey, totalMicroRewardAmount, justCheck: true);
 
     public Blockchain(string blockchainFilename = null, Action<Block> onBlockLoad = null) {
         if (blockchainFilename != null) _blockchainFile = blockchainFilename;
@@ -75,7 +75,7 @@ public class Blockchain {
 
     public void Commit(Block block) {
         LastBlock = block;
-        UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, MicroReward);
+        UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
         string fileString = LastBlock.FileString();
         Contract.Assert(!CheckForNewBlocks(), "File has changed");
         File.AppendAllLines(_blockchainFile, [fileString]);
