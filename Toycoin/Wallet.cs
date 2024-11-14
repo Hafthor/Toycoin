@@ -21,8 +21,8 @@ public class Wallet : IDisposable {
         }
     }
 
-    public Transaction CreateTransaction(ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee) =>
-        new(PublicKey, receiver, microAmount, microFee, _privateKey);
+    public Transaction CreateTransaction(ulong blockId, ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee) =>
+        new(blockId, PublicKey, receiver, microAmount, microFee, _privateKey);
 
     public override string ToString() => $"{Convert.ToHexString(_publicKey)}";
 

@@ -4,23 +4,25 @@ using System.Security.Cryptography;
 namespace Toycoin;
 
 public class Transaction {
-    public const int BinaryLength = 140 + 8 + 140 + 8 + 128; // 424 bytes
+    public const int BinaryLength = 8 + 140 + 8 + 140 + 8 + 128; // 432 bytes
     public byte[] Data { get; }
-    private Span<byte> MySignature => Data.AsSpan()[^128..];
     
     // we put Receiver and MicroAmount first to match the reward mini-transaction at the end
-    public ReadOnlySpan<byte> Receiver => Data.AsSpan()[..140];
-    public ulong MicroAmount => BitConverter.ToUInt64(Data.AsSpan()[140..148]);
-    public ReadOnlySpan<byte> Sender => Data.AsSpan()[148..288];
-    public ulong MicroFee => BitConverter.ToUInt64(Data.AsSpan()[288..296]);
+    public ulong BlockId => BitConverter.ToUInt64(Data.AsSpan()[..8]);
+    public ReadOnlySpan<byte> Receiver => Data.AsSpan()[8..148];
+    public ulong MicroAmount => BitConverter.ToUInt64(Data.AsSpan()[148..156]);
+    public ReadOnlySpan<byte> Sender => Data.AsSpan()[156..296];
+    public ulong MicroFee => BitConverter.ToUInt64(Data.AsSpan()[296..304]);
     public ReadOnlySpan<byte> ToBeSigned => Data.AsSpan()[..^128];
+    private Span<byte> MySignature => Data.AsSpan()[^128..];
     public ReadOnlySpan<byte> Signature => MySignature;
 
-    public Transaction(ReadOnlySpan<byte> sender, ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee,
+    public Transaction(ulong blockId, ReadOnlySpan<byte> sender, ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee,
         ReadOnlySpan<byte> privateKey) {
         Contract.Assert(sender.Length == 140 && receiver.Length == 140, "Invalid public key length");
         Contract.Assert(privateKey.Length >= 600, "Invalid private key length");
         Data = [
+            .. BitConverter.GetBytes(blockId),
             .. receiver,
             .. BitConverter.GetBytes(microAmount),
             .. sender,

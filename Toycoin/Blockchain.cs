@@ -13,6 +13,7 @@ public class Blockchain {
     private int _lastBlockCount = 0;
 
     private readonly Dictionary<byte[], ulong> _balances = new(ByteArrayComparer.Instance);
+    private readonly HashSet<byte[]> _signatures = new(ByteArrayComparer.Instance);
 
     private void UpdateBalances(Block block) =>
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
@@ -24,11 +25,15 @@ public class Blockchain {
             var checkReward = MicroReward;
             // group transactions by sender and receiver with adds and subs
             Dictionary<byte[], ulong> adds = new(ByteArrayComparer.Instance), subs = new(ByteArrayComparer.Instance);
+            HashSet<byte[]> newSignatures = new(ByteArrayComparer.Instance);
             foreach (var tx in transactions) {
                 byte[] sender = tx.Sender.ToArray(), receiver = tx.Receiver.ToArray();
                 adds[receiver] = adds.GetValueOrDefault(receiver, 0ul) + tx.MicroAmount;
                 subs[sender] = subs.GetValueOrDefault(sender, 0ul) + tx.MicroAmount + tx.MicroFee;
                 checkReward += tx.MicroFee;
+                byte[] signature = tx.Signature.ToArray();
+                Contract.Assert(!_signatures.Contains(signature), "Replayed transaction");
+                Contract.Assert(newSignatures.Add(signature), "Duplicate transaction");
             }
             Contract.Assert(checkReward == totalMicroRewardAmount, "Invalid total reward amount");
             adds[rewardPublicKeyArray] = adds.GetValueOrDefault(rewardPublicKeyArray, 0ul) + totalMicroRewardAmount;
@@ -44,6 +49,7 @@ public class Blockchain {
                     _balances[key] = _balances.GetValueOrDefault(key, 0ul) + value;
                 foreach (var (key, value) in subs)
                     _balances[key] -= value; // _balances MUST always have a value for key
+                _signatures.UnionWith(newSignatures);
             }
         }
     }

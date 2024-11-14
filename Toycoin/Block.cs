@@ -5,16 +5,19 @@ namespace Toycoin;
 
 public class Block {
     public Block Previous { get; }
-
-    // PreviousHash(32) + Nonce(32) + Transactions(424*n) + RewardPublicKey(140) + TotalMicroRewardAmount(8) + Hash(32)
+    
+    // PreviousHash(32) + BlockId(8) + Nonce(32) + Transactions(424*n) + RewardPublicKey(140) + TotalMicroRewardAmount(8) + Hash(32)
     public byte[] Data { get; }
-    private Span<byte> MyNonce => Data.AsSpan()[32..64];
-    private Span<byte> MyHash => Data.AsSpan()[^32..];
-    private ReadOnlySpan<byte> ToBeHashed => Data.AsSpan()[..^32];
     public ReadOnlySpan<byte> PreviousHash => Data.AsSpan()[..32];
+    private Span<byte> MyBlockId => Data.AsSpan()[32..40];
+    public ulong BlockId => BitConverter.ToUInt64(MyBlockId);
+    private Span<byte> MyNonce => Data.AsSpan()[40..72];
     public ReadOnlySpan<byte> Nonce => MyNonce;
-    public ReadOnlySpan<byte> TransactionData => Data.AsSpan()[64..^32];
+    public ReadOnlySpan<byte> TransactionData => Data.AsSpan()[72..^32];
+    private ReadOnlySpan<byte> ToBeHashed => Data.AsSpan()[..^32];
+    private Span<byte> MyHash => Data.AsSpan()[^32..];
     public ReadOnlySpan<byte> Hash => MyHash;
+
     public ReadOnlySpan<byte> Transactions => TransactionData[..^148];
     public ReadOnlySpan<byte> RewardPublicKey => TransactionData[^148..^8];
     public ulong TotalMicroRewardAmount => BitConverter.ToUInt64(TransactionData[^8..]);
@@ -53,8 +56,10 @@ public class Block {
         Contract.Assert(data.Length % Transaction.BinaryLength == 140 + 8, "Invalid data length");
         Previous = previous;
         var previousHash = previous == null ? new byte[32] : previous.Hash;
+        var blockId = previous == null ? 0ul : previous.BlockId + 1;
         Data = [
             .. previousHash,
+            .. BitConverter.GetBytes(blockId),
             .. nonce ?? new byte[32],
             .. data,
             .. hash ?? new byte[32]

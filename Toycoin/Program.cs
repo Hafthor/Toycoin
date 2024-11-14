@@ -93,7 +93,7 @@ public static class Program {
         random.NextBytes(receiver);
         ulong amount = (ulong)random.Next((int)(bc.MicroReward / (ulong)(bc.MaxTransactions * 3 / 2))),
             fee = (ulong)random.Next(100);
-        return wallet.CreateTransaction(receiver, amount, fee);
+        return wallet.CreateTransaction(bc.LastBlock?.BlockId ?? 0ul, receiver, amount, fee);
     }
 
     private static int _previousSpinner = -1;
