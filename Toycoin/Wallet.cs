@@ -4,27 +4,39 @@ namespace Toycoin;
 
 public class Wallet : IDisposable {
     private readonly string _walletFile = "wallet.dat";
-    private readonly byte[] _privateKey, _publicKey;
+    private readonly byte[] _publicKey;
+    private readonly RSACryptoServiceProvider _rsa;
     public ReadOnlySpan<byte> PublicKey => _publicKey.AsSpan();
 
     public Wallet(string walletFilename = null) {
         if (walletFilename != null) _walletFile = walletFilename;
-        using (RSACryptoServiceProvider rsa = new()) {
+        try {
+            _rsa = new();
+            byte[] privateKey;
             if (File.Exists(_walletFile)) {
-                _privateKey = File.ReadAllBytes(_walletFile);
-                rsa.ImportRSAPrivateKey(_privateKey, out _);
+                privateKey = File.ReadAllBytes(_walletFile);
+                _rsa.ImportRSAPrivateKey(privateKey, out _);
             } else {
-                _privateKey = rsa.ExportRSAPrivateKey();
-                File.WriteAllBytes(_walletFile, _privateKey);
+                privateKey = _rsa.ExportRSAPrivateKey();
+                File.WriteAllBytes(_walletFile, privateKey);
             }
-            _publicKey = rsa.ExportRSAPublicKey();
+            Array.Clear(privateKey); // clear private key from memory for security
+            _publicKey = _rsa.ExportRSAPublicKey();
+        } finally {
+            if (_publicKey == null) _rsa.Dispose(); // clear from memory for security
         }
     }
+    
+    public void SignData(ReadOnlySpan<byte> data, Span<byte> signature) =>
+        _rsa.TrySignData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1, out _);
 
-    public Transaction CreateTransaction(ulong blockId, ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee) =>
-        new(blockId, PublicKey, receiver, microAmount, microFee, _privateKey);
-
+    public static bool VerifyData(ReadOnlySpan<byte> data, ReadOnlySpan<byte> signature, ReadOnlySpan<byte> publicKey) {
+        using (RSACryptoServiceProvider rsa = new()) {
+            rsa.ImportRSAPublicKey(publicKey, out _);
+            return rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        }
+    }
     public override string ToString() => $"{Convert.ToHexString(_publicKey)}";
 
-    public void Dispose() => Array.Clear(_privateKey); // clear private key from memory for security
+    public void Dispose() => _rsa.Dispose(); // clear from memory for security
 }
