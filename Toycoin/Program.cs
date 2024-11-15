@@ -53,7 +53,7 @@ public static class Program {
                     Parallel.For(0, threadCount, procId => {
                         var block = new Block(bc, bc.LastBlock, mineTxs, myPublicKey);
                         bool valid = false;
-                        if (procId == 0) {
+                        if (procId == 0) { // only only thread checks for new blocks and updates the spinner
                             for (; toBeMined > 0 && !valid; Interlocked.Increment(ref hashCount)) {
                                 if (block.Nonce[0] == 0) {
                                     Spinner();
