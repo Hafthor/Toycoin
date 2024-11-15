@@ -80,7 +80,9 @@ public class Blockchain {
     public bool CheckForNewBlocks() => lastFileDateTime != File.GetLastWriteTimeUtc(blockchainFile);
 
     public void Commit(Block block) {
-        Contract.Assert(block.BlockId == (LastBlock?.BlockId ?? 0) + 1, "Invalid block id");
+        ulong expectedBlockId = 0;
+        if (LastBlock!=null) expectedBlockId = LastBlock.BlockId + 1;
+        Contract.Assert(block.BlockId == expectedBlockId, "Invalid block id");
         LastBlock = block;
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
         string fileString = LastBlock.FileString();
