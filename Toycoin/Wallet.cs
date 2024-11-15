@@ -23,7 +23,7 @@ public class Wallet : IDisposable {
             Array.Clear(privateKey); // clear private key from memory for security
             publicKey = rsa.ExportRSAPublicKey();
         } finally {
-            if (publicKey == null) rsa.Dispose(); // clear from memory for security
+            if (publicKey == null) rsa?.Dispose(); // clear from memory for security, but only if we didn't succeed
         }
     }
     
