@@ -49,12 +49,13 @@ public static class Program {
                     // get the highest paying transactions
                     var mineTxs = transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList();
                     var startTime = Stopwatch.GetTimestamp();
-                    int hashCount = 0, toBeMined = 1;
+                    int toBeMined = 1;
+                    int[] hashCounts = new int[threadCount];
                     Parallel.For(0, threadCount, procId => {
                         var block = new Block(bc, bc.LastBlock, mineTxs, myPublicKey);
                         bool valid = false;
                         if (procId == 0) { // only only thread checks for new blocks and updates the spinner
-                            for (; toBeMined > 0 && !valid; Interlocked.Increment(ref hashCount)) {
+                            for (; toBeMined > 0 && !valid; hashCounts[procId]++) {
                                 if (block.Nonce[0] == 0) {
                                     Spinner();
                                     if (bc.CheckForNewBlocks()) {
@@ -64,7 +65,7 @@ public static class Program {
                                 valid = bc.CheckBlock(block.IncrementAndHash());
                             }
                         } else {
-                            for (; toBeMined > 0 && !valid; Interlocked.Increment(ref hashCount)) {
+                            for (; toBeMined > 0 && !valid; hashCounts[procId]++) {
                                 valid = bc.CheckBlock(block.IncrementAndHash());
                             }
                         }
@@ -79,6 +80,7 @@ public static class Program {
                         bc.LoadNewBlocks(onBlockLoad: Console.WriteLine);
                     } else {
                         var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
+                        int hashCount = hashCounts.Sum();
                         Console.WriteLine(
                             $"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {hashCount / elapsed / 1E6:N3}Mhps txs={transactions.Count:N0}");
                     }
