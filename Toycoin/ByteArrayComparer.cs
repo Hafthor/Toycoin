@@ -11,5 +11,5 @@ public class ByteArrayComparer : EqualityComparer<byte[]> {
             ? first == second
             : ReferenceEquals(first, second) || first.Length == second.Length && first.SequenceEqual(second);
 
-    public override int GetHashCode(byte[] obj) => obj.Length;
+    public override int GetHashCode(byte[] obj) => obj.Aggregate(0, (a, b) => a * 31 + b);
 }
