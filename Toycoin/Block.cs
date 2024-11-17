@@ -13,14 +13,14 @@ public class Block {
     // PreviousHash(32) + BlockId(8) + Nonce(32) + Transactions(424*n) + RewardPublicKey(140) + TotalMicroRewardAmount(8) + Hash(32)
     private byte[] data { get; }
     public ReadOnlySpan<byte> PreviousHash => data.AsSpan(0, HashLength);
-    private Span<byte> dataPostPreviousHash => data.AsSpan(HashLength);
-    private Span<byte> blockId => dataPostPreviousHash[..sizeof(ulong)];
+    private Span<byte> dataAtBlockId => data.AsSpan(HashLength);
+    private Span<byte> blockId => dataAtBlockId[..sizeof(ulong)];
     public ulong BlockId => BitConverter.ToUInt64(blockId);
-    private Span<byte> dataPostBlockId => dataPostPreviousHash[sizeof(ulong)..];
-    private Span<byte> nonce => dataPostBlockId[..NonceLength];
+    private Span<byte> dataAtNonce => dataAtBlockId[sizeof(ulong)..];
+    private Span<byte> nonce => dataAtNonce[..NonceLength];
     public ReadOnlySpan<byte> Nonce => nonce;
-    private Span<byte> dataPostNonce => dataPostBlockId[NonceLength..];
-    public ReadOnlySpan<byte> TransactionData => dataPostNonce[..^HashLength];
+    private Span<byte> dataAtTransaction => dataAtNonce[NonceLength..];
+    public ReadOnlySpan<byte> TransactionData => dataAtTransaction[..^HashLength];
     private ReadOnlySpan<byte> toBeHashed => data.AsSpan()[..^HashLength];
     private Span<byte> hash => data.AsSpan()[^HashLength..];
     public ReadOnlySpan<byte> Hash => hash;
@@ -61,8 +61,6 @@ public class Block {
         Contract.Assert(bc != null, "Missing blockchain");
         Contract.Assert(nonce == null || nonce.Length == NonceLength, "Invalid nonce length");
         Contract.Assert(hash == null || hash.Length == HashLength, "Invalid hash length");
-        Contract.Assert(data.Length % Transaction.BinaryLength == Wallet.PublicKeyLength + sizeof(ulong),
-            "Invalid data length");
         Previous = bc.LastBlock;
         var previousHash = Previous == null ? new byte[HashLength] : Previous.Hash;
         var blockId = Previous == null ? 0ul : Previous.BlockId + 1;
@@ -73,6 +71,9 @@ public class Block {
             .. data,
             .. hash ?? new byte[HashLength]
         ];
+        Contract.Assert(dataAtTransaction.Length == TransactionData.Length + HashLength, "Invalid data length");
+        Contract.Assert(data.Length % Transaction.BinaryLength == Wallet.PublicKeyLength + sizeof(ulong),
+            "Invalid data length");
         VerifyBlockData(bc, RewardPublicKey);
         if (nonce == null) new Random().NextBytes(this.nonce);
         Contract.Assert(hash == null || Hash.SequenceCompareTo(bc.Difficulty) < 0 && Hash.SequenceEqual(hash),
