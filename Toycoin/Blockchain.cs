@@ -1,4 +1,5 @@
 using System.Diagnostics.Contracts;
+using System.Runtime.InteropServices;
 
 namespace Toycoin;
 
@@ -37,10 +38,9 @@ public class Blockchain {
             HashSet<byte[]>.AlternateLookup<ReadOnlySpan<byte>>
                 newSignaturesLookup = newSignatures.GetAlternateLookup<ReadOnlySpan<byte>>();
             foreach (var tx in transactions) {
-                addsLookup[tx.Receiver] =
-                    (addsLookup.TryGetValue(tx.Receiver, out ulong rxAdd) ? rxAdd : 0ul) + tx.MicroAmount;
-                subsLookup[tx.Sender] =
-                    (subsLookup.TryGetValue(tx.Sender, out ulong txSub) ? txSub : 0ul) + tx.MicroAmount + tx.MicroFee;
+                CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, tx.Receiver, out _) += tx.MicroAmount;
+                ulong totalSubtract = tx.MicroAmount + tx.MicroFee;
+                CollectionsMarshal.GetValueRefOrAddDefault(subsLookup, tx.Sender, out _) += totalSubtract;
                 checkReward += tx.MicroFee;
                 // since transactions include block id, we should never have a legitimate duplicate signature
                 Contract.Assert(!signaturesLookup.Contains(tx.Signature), "Replayed transaction");
@@ -48,8 +48,7 @@ public class Blockchain {
                 Contract.Assert(newSignaturesLookup.Add(tx.Signature), "Duplicate transaction");
             }
             Contract.Assert(checkReward == totalMicroRewardAmount, "Invalid total reward amount");
-            addsLookup[rewardPublicKey] =
-                (addsLookup.TryGetValue(rewardPublicKey, out ulong myAdd) ? myAdd : 0ul) + totalMicroRewardAmount;
+            CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, rewardPublicKey, out _) += totalMicroRewardAmount;
 
             // check and update balances
             lock (balances) { // not strictly necessary here since we're not using threads, but good practice
@@ -87,7 +86,7 @@ public class Blockchain {
         int skip = (int)(LastBlock?.BlockId ?? 0);
         var newFileDateTime = File.GetLastWriteTimeUtc(blockchainFile);
         if (lastFileDateTime == newFileDateTime) return false;
-        foreach (var line in File.ReadAllLines(blockchainFile).Skip(skip)) {
+        foreach (var line in File.ReadLines(blockchainFile).Skip(skip)) {
             var ss = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
             Block block = new(this, LastBlock, ss[1], ss[0], ss[2]);
             UpdateBalances(LastBlock = block);
