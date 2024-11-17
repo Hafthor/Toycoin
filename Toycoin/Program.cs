@@ -77,12 +77,16 @@ public static class Program {
                     });
                     // we either found a block or the file changed (or maybe both, but file change takes precedence)
                     if (!bc.LoadNewBlocks(onBlockLoad: Console.WriteLine)) {
-                        bc.Commit(minedBlock);
-                        transactions = transactions.Except(mineTxs).ToList(); // remove txs we just committed
-                        int hashCount = hashCounts.Sum();
-                        var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
-                        Console.WriteLine($"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {
-                            hashCount / elapsed / 1E6:N3}Mhps txs={transactions.Count:N0}");
+                        if (bc.Commit(minedBlock)) {
+                            transactions = transactions.Except(mineTxs).ToList(); // remove txs we just committed
+                            int hashCount = hashCounts.Sum();
+                            var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
+                            Console.WriteLine($"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {
+                                hashCount / elapsed / 1E6:N3}Mhps txs={transactions.Count:N0}");
+                        } else {
+                            Console.WriteLine("Block not committed");
+                            bc.LoadNewBlocks(onBlockLoad: Console.WriteLine);
+                        }
                     }
                 }
             } finally {
