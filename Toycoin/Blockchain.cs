@@ -7,7 +7,8 @@ public class Blockchain {
     public Block LastBlock { get; private set; }
 
     public byte[] Difficulty { get; } = // must have 3 leading zeros to be less than this
-        [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 
+        [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
     public ulong MicroReward { get; } = 1_000_000; // 1 toycoin mining reward
     public int MaxTransactions { get; } = 10; // maximum transactions per block
 
@@ -15,7 +16,9 @@ public class Blockchain {
     private DateTime lastFileDateTime = DateTime.FromFileTimeUtc(0);
 
     private readonly Dictionary<byte[], ulong> balances = new(ByteArrayComparer.Instance); // balances by public key
+    private readonly Dictionary<byte[], ulong>.AlternateLookup<ReadOnlySpan<byte>> balancesLookup;
     private readonly HashSet<byte[]> signatures = new(ByteArrayComparer.Instance); // unique transaction signatures
+    private readonly HashSet<byte[]>.AlternateLookup<ReadOnlySpan<byte>> signaturesLookup;
 
     private void UpdateBalances(Block block) =>
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
@@ -23,25 +26,30 @@ public class Blockchain {
     private void UpdateBalances(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
         ulong totalMicroRewardAmount, bool justCheck = false) {
         checked { // check for overflow/underflow on all arithmetic operations
-            var rewardPublicKeyArray = rewardPublicKey.ToArray();
             var checkReward = MicroReward;
             // group transactions by sender and receiver with adds and subs so we can confirm that each account has
             // enough funds to cover the transactions before we update the balances
             Dictionary<byte[], ulong> adds = new(ByteArrayComparer.Instance), subs = new(ByteArrayComparer.Instance);
             HashSet<byte[]> newSignatures = new(ByteArrayComparer.Instance);
+            Dictionary<byte[], ulong>.AlternateLookup<ReadOnlySpan<byte>>
+                addsLookup = adds.GetAlternateLookup<ReadOnlySpan<byte>>(),
+                subsLookup = subs.GetAlternateLookup<ReadOnlySpan<byte>>();
+            HashSet<byte[]>.AlternateLookup<ReadOnlySpan<byte>>
+                newSignaturesLookup = newSignatures.GetAlternateLookup<ReadOnlySpan<byte>>();
             foreach (var tx in transactions) {
-                byte[] sender = tx.Sender.ToArray(), receiver = tx.Receiver.ToArray();
-                adds[receiver] = adds.GetValueOrDefault(receiver, 0ul) + tx.MicroAmount;
-                subs[sender] = subs.GetValueOrDefault(sender, 0ul) + tx.MicroAmount + tx.MicroFee;
+                addsLookup[tx.Receiver] =
+                    (addsLookup.TryGetValue(tx.Receiver, out ulong rxAdd) ? rxAdd : 0ul) + tx.MicroAmount;
+                subsLookup[tx.Sender] =
+                    (subsLookup.TryGetValue(tx.Sender, out ulong txSub) ? txSub : 0ul) + tx.MicroAmount + tx.MicroFee;
                 checkReward += tx.MicroFee;
-                byte[] signature = tx.Signature.ToArray();
                 // since transactions include block id, we should never have a legitimate duplicate signature
-                Contract.Assert(!signatures.Contains(signature), "Replayed transaction");
+                Contract.Assert(!signaturesLookup.Contains(tx.Signature), "Replayed transaction");
                 // we should never have a duplicate signature in the same block, that'd be just silly
-                Contract.Assert(newSignatures.Add(signature), "Duplicate transaction");
+                Contract.Assert(newSignaturesLookup.Add(tx.Signature), "Duplicate transaction");
             }
             Contract.Assert(checkReward == totalMicroRewardAmount, "Invalid total reward amount");
-            adds[rewardPublicKeyArray] = adds.GetValueOrDefault(rewardPublicKeyArray, 0ul) + totalMicroRewardAmount;
+            addsLookup[rewardPublicKey] =
+                (addsLookup.TryGetValue(rewardPublicKey, out ulong myAdd) ? myAdd : 0ul) + totalMicroRewardAmount;
 
             // check and update balances
             lock (balances) { // not strictly necessary here since we're not using threads, but good practice
@@ -67,6 +75,8 @@ public class Blockchain {
         UpdateBalances(transactions, rewardPublicKey, totalMicroRewardAmount, justCheck: true);
 
     public Blockchain(string blockchainFilename = null, Action<Block> onBlockLoad = null) {
+        balancesLookup = balances.GetAlternateLookup<ReadOnlySpan<byte>>();
+        signaturesLookup = signatures.GetAlternateLookup<ReadOnlySpan<byte>>();
         if (blockchainFilename != null) blockchainFile = blockchainFilename;
         LoadNewBlocks(onBlockLoad);
     }
