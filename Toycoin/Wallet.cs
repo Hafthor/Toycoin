@@ -12,19 +12,19 @@ public class Wallet : IDisposable {
     public ReadOnlySpan<byte> PublicKey => publicKey.AsSpan();
 
     public Wallet(string walletFilename = null) {
+        byte[] privateKey = null;
         try {
             if (walletFilename != null) walletFile = walletFilename;
             if (File.Exists(walletFile)) {
-                var privateKey = File.ReadAllBytes(walletFile); // remember to clear from memory for security
+                privateKey = File.ReadAllBytes(walletFile); // remember to clear from memory for security
                 rsa.ImportRSAPrivateKey(privateKey, out _);
-                Array.Clear(privateKey); // clear private key from memory for security
             } else {
-                var privateKey = rsa.ExportRSAPrivateKey(); // remember to clear from memory for security
+                privateKey = rsa.ExportRSAPrivateKey(); // remember to clear from memory for security
                 File.WriteAllBytes(walletFile, privateKey);
-                Array.Clear(privateKey); // clear private key from memory for security
             }
             publicKey = rsa.ExportRSAPublicKey();
         } finally {
+            if (privateKey != null) Array.Clear(privateKey); // clear private key from memory for security
             if (publicKey == null) rsa?.Dispose(); // clear from memory for security, but only if we did NOT succeed
         }
     }

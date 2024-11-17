@@ -72,6 +72,7 @@ public class Blockchain {
     }
     
     public Blockchain(string blockchainFilename = null, Action<Block> onBlockLoad = null) {
+        Contract.Assert(Difficulty.Length == Block.HashLength, "Invalid difficulty length");
         if (blockchainFilename != null) blockchainFile = blockchainFilename;
         LoadNewBlocks(onBlockLoad);
     }
@@ -85,7 +86,7 @@ public class Blockchain {
         foreach (var line in File.ReadLines(blockchainFile).Skip(skip)) {
             var parts = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
             Contract.Assert(parts.Length == 3, "Invalid block format");
-            LastBlock = new(this, parts[1], parts[0], parts[2]);
+            LastBlock = new(this, parts[1], parts[0], parts[2]); // this, data, nonce, hash
             UpdateBalances(LastBlock);
             onBlockLoad?.Invoke(LastBlock);
         }

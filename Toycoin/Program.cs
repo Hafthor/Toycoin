@@ -100,7 +100,7 @@ public static class Program {
             .Select(_ => MakeRandomTransaction(bc, wallet, random));
 
     private static Transaction MakeRandomTransaction(Blockchain bc, Wallet wallet, Random random) {
-        var receiver = new byte[140];
+        var receiver = new byte[Wallet.PublicKeyLength];
         random.NextBytes(receiver);
         ulong amount = (ulong)random.Next((int)(bc.MicroReward / (ulong)(bc.MaxTransactions * 3 / 2))),
             fee = (ulong)random.Next(100);

@@ -9,13 +9,18 @@ public class Transaction {
     public byte[] Data { get; }
 
     // we put Receiver and MicroAmount first to match the reward mini-transaction at the end
-    public ulong BlockId => BitConverter.ToUInt64(Data.AsSpan()[..8]);
-    public ReadOnlySpan<byte> Receiver => Data.AsSpan()[8..148];
-    public ulong MicroAmount => BitConverter.ToUInt64(Data.AsSpan()[148..156]);
-    public ReadOnlySpan<byte> Sender => Data.AsSpan()[156..296];
-    public ulong MicroFee => BitConverter.ToUInt64(Data.AsSpan()[296..304]);
-    public ReadOnlySpan<byte> ToBeSigned => Data.AsSpan()[..^128];
-    private Span<byte> signature => Data.AsSpan()[^128..];
+    public ulong BlockId => BitConverter.ToUInt64(Data.AsSpan(0, sizeof(ulong)));
+    private Span<byte> dataPostBlockId => Data.AsSpan(sizeof(ulong));
+    public ReadOnlySpan<byte> Receiver => dataPostBlockId[..Wallet.PublicKeyLength];
+    private Span<byte> dataPostReceiver => dataPostBlockId[Wallet.PublicKeyLength..];
+    public ulong MicroAmount => BitConverter.ToUInt64(dataPostReceiver[..sizeof(ulong)]);
+    private Span<byte> dataPostMicroAmount => dataPostReceiver[sizeof(ulong)..];
+    public ReadOnlySpan<byte> Sender => dataPostMicroAmount[..Wallet.PublicKeyLength];
+    private Span<byte> dataPostSender => dataPostMicroAmount[Wallet.PublicKeyLength..];
+    public ulong MicroFee => BitConverter.ToUInt64(dataPostSender[..sizeof(ulong)]);
+    private Span<byte> dataPostMicroFee => dataPostSender[sizeof(ulong)..];
+    public ReadOnlySpan<byte> ToBeSigned => Data.AsSpan()[..^Wallet.SignatureLength];
+    private Span<byte> signature => Data.AsSpan()[^Wallet.SignatureLength..];
     public ReadOnlySpan<byte> Signature => signature;
 
     public Transaction(ulong blockId, ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee, Wallet wallet) {
@@ -25,9 +30,10 @@ public class Transaction {
             .. BitConverter.GetBytes(microAmount),
             .. wallet.PublicKey,
             .. BitConverter.GetBytes(microFee),
-            .. new byte[128], // signature
+            .. new byte[Wallet.SignatureLength], // signature
         ];
         Contract.Assert(Data.Length == BinaryLength, "Invalid data length");
+        Contract.Assert(dataPostMicroFee.Length == Wallet.SignatureLength, "Something wrong with the data layout");
         wallet.SignData(ToBeSigned, signature);
     }
 
