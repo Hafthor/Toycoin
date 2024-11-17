@@ -20,8 +20,12 @@ public class Blockchain {
     private readonly Dictionary<byte[], ulong> balances = new(ByteArrayComparer.Instance); // balances by public key
     private readonly HashSet<byte[]> signatures = new(ByteArrayComparer.Instance); // unique transaction signatures
 
-    private void UpdateBalances(Block block) =>
-        UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
+    private void UpdateBalances(Block block, bool justCheck = false) =>
+        UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount, justCheck);
+
+    public void ValidateTransactions(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
+        ulong totalMicroRewardAmount) =>
+        UpdateBalances(transactions, rewardPublicKey, totalMicroRewardAmount, justCheck: true);
 
     private void UpdateBalances(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
         ulong totalMicroRewardAmount, bool justCheck = false) {
@@ -66,11 +70,7 @@ public class Blockchain {
             }
         }
     }
-
-    public void ValidateTransactions(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
-        ulong totalMicroRewardAmount) =>
-        UpdateBalances(transactions, rewardPublicKey, totalMicroRewardAmount, justCheck: true);
-
+    
     public Blockchain(string blockchainFilename = null, Action<Block> onBlockLoad = null) {
         if (blockchainFilename != null) blockchainFile = blockchainFilename;
         LoadNewBlocks(onBlockLoad);
@@ -83,8 +83,9 @@ public class Blockchain {
         var newFileDateTime = File.GetLastWriteTimeUtc(blockchainFile);
         if (lastFileDateTime == newFileDateTime) return false;
         foreach (var line in File.ReadLines(blockchainFile).Skip(skip)) {
-            var ss = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
-            LastBlock = new(this, LastBlock, ss[1], ss[0], ss[2]);
+            var parts = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
+            Contract.Assert(parts.Length == 3, "Invalid block format");
+            LastBlock = new(this, parts[1], parts[0], parts[2]);
             UpdateBalances(LastBlock);
             onBlockLoad?.Invoke(LastBlock);
         }

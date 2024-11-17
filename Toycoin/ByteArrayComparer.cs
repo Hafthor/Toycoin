@@ -9,8 +9,7 @@ public class ByteArrayComparer : EqualityComparer<byte[]>, IAlternateEqualityCom
     public override bool Equals(byte[] obj1, byte[] obj2) =>
         obj1 == null || obj2 == null ? obj1 == obj2 : ReferenceEquals(obj1, obj2) || obj1.SequenceEqual(obj2);
 
-    public bool Equals(ReadOnlySpan<byte> alternate, byte[] other) =>
-        other != null && alternate.SequenceEqual(other);
+    public bool Equals(ReadOnlySpan<byte> alternate, byte[] other) => other != null && alternate.SequenceEqual(other);
 
     public override int GetHashCode(byte[] obj) => GetHashCode(obj.AsSpan());
 

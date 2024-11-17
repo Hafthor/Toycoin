@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 namespace Toycoin;
 
 public class Wallet : IDisposable {
+    public const int PublicKeyLength = 140, SignatureLength = 128;
     private readonly string walletFile = "wallet.dat";
     private readonly byte[] publicKey;
     private readonly RSACryptoServiceProvider rsa = new(); // remember to dispose of this for security

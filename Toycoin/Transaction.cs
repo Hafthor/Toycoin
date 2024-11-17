@@ -3,7 +3,9 @@ using System.Diagnostics.Contracts;
 namespace Toycoin;
 
 public class Transaction {
-    public const int BinaryLength = 8 + 140 + 8 + 140 + 8 + 128; // 432 bytes
+    public const int BinaryLength = sizeof(ulong) + Wallet.PublicKeyLength + 
+                                    sizeof(ulong) + Wallet.PublicKeyLength + 
+                                    sizeof(ulong) + Wallet.SignatureLength; // 432 bytes
     public byte[] Data { get; }
 
     // we put Receiver and MicroAmount first to match the reward mini-transaction at the end
@@ -25,6 +27,7 @@ public class Transaction {
             .. BitConverter.GetBytes(microFee),
             .. new byte[128], // signature
         ];
+        Contract.Assert(Data.Length == BinaryLength, "Invalid data length");
         wallet.SignData(ToBeSigned, signature);
     }
 
