@@ -5,88 +5,88 @@ namespace Toycoin;
 
 public static class Program {
     public static int Main(string[] args) {
-        Console.OutputEncoding = System.Text.Encoding.UTF8; // so we can display the spinner properly
+        Console.OutputEncoding = System.Text.Encoding.UTF8; // so we can display the spinner characters properly
+
         if (args.Length > 0 && args[0] is "-h" or "--help" or "/?") {
             Console.WriteLine(@"Usage..: Toycoin [-w {walletFilename}] [-b {blockchainFilename}] [-t {threadCount}]");
             Console.WriteLine($"Default: Toycoin -w wallet.dat -b blockchain.dat -t {Environment.ProcessorCount}");
             return 0;
         }
 
+        // default command line arguments
         string walletFilename = null, blockchainFilename = null;
         int threadCount = Environment.ProcessorCount;
+
+        // parse command line arguments
         for (int i = 0; i < args.Length; i++) {
-            if (args[i] == "-w") {
-                walletFilename = args[++i];
-            } else if (args[i] == "-b") {
-                blockchainFilename = args[++i];
-            } else if (args[i] == "-t") {
-                threadCount = int.Parse(args[++i]);
-                Contract.Assert(threadCount > 0, "Invalid thread count");
+            if (args[i] is "-w" or "--wallet") {
+                Contract.Assert(++i < args.Length, "Missing wallet filename");
+                walletFilename = args[i];
+            } else if (args[i] is "-b" or "--blockchain") {
+                Contract.Assert(++i < args.Length, "Missing blockchain filename");
+                blockchainFilename = args[i];
+            } else if (args[i] is "-t" or "--threads") {
+                Contract.Assert(++i < args.Length, "Missing thread count");
+                Contract.Assert(int.TryParse(args[i], out threadCount) && threadCount > 0,
+                    $"Invalid thread count '{args[i]}'");
             } else {
-                Contract.Assert(false, "Invalid argument " + args[i]);
+                Contract.Assert(false, $"Invalid argument '{args[i]}'");
             }
         }
 
-        byte[] myPublicKey;
-        List<Transaction> transactions = [];
+        Console.WriteLine("Loading...");
+        var bc = new Blockchain(blockchainFilename, Console.WriteLine);
+        Console.WriteLine("Mining...");
+
         using (Wallet wallet = new(walletFilename)) {
-            myPublicKey = wallet.PublicKey.ToArray();
+            var myPublicKey = wallet.PublicKey.ToArray();
 
-            Console.WriteLine("Loading...");
-            var bc = new Blockchain(blockchainFilename, Console.WriteLine);
-            Console.WriteLine("Mining...");
-
+            // hide cursor so spinner looks better, but handle Ctrl+C to show cursor before exiting
             Console.CancelKeyPress += (_, _) => {
                 Console.Write("\e[?25h"); // show cursor
                 Environment.Exit(-1);
             };
-            try {
+            try { // try/finally block to ensure cursor is shown
                 Console.Write("\e[?25l"); // hide cursor
 
+                List<Transaction> transactions = [];
                 for (;;) { // mining loop
-                    // Add random transactions
+                    // Add some random transactions
                     transactions.AddRange(MakeRandomTransactions(bc, wallet, new Random()));
                     // get the highest paying transactions
                     var mineTxs = transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList();
+
+                    // actual block mining
                     var startTime = Stopwatch.GetTimestamp();
-                    int toBeMined = 1;
-                    int[] hashCounts = new int[threadCount];
-                    Parallel.For(0, threadCount, procId => {
-                        var block = new Block(bc, bc.LastBlock, mineTxs, myPublicKey);
-                        bool valid = false;
-                        if (procId == 0) { // only one thread checks for new blocks and updates the spinner
-                            for (; toBeMined > 0 && !valid; hashCounts[procId]++) {
-                                if (block.Nonce[0] == 0) {
-                                    Spinner();
-                                    if (bc.CheckForNewBlocks()) {
-                                        Interlocked.CompareExchange(ref toBeMined, 0, 1);
-                                    }
-                                }
-                                valid = bc.CheckBlock(block.IncrementAndHash());
+                    int toBeMined = 1; // 1 if we need to continue mining, 0 if we found a block (or file changed)
+                    int[] hashCounts = new int[threadCount]; // hash counts, 1/thread to avoid having to lock increment
+                    Block minedBlock = null;
+                    Parallel.For(0, threadCount, threadId => {
+                        var block = new Block(bc, mineTxs, myPublicKey); // create a new block
+                        bool done = false;
+                        for (; toBeMined > 0 && !done; hashCounts[threadId]++) {
+                            // only one thread checks for new blocks and updates the spinner, and only 1/256 times
+                            if (threadId == 0 && block.Nonce[0] == 0) {
+                                Spinner();
+                                done = bc.CheckForNewBlocks();
                             }
-                        } else {
-                            for (; toBeMined > 0 && !valid; hashCounts[procId]++) {
-                                valid = bc.CheckBlock(block.IncrementAndHash());
-                            }
+                            done |= bc.CheckBlock(block.IncrementAndHash());
                         }
-                        if (valid && Interlocked.CompareExchange(ref toBeMined, 0, 1) == 1) {
-                            bc.Commit(block);
-                            transactions =
-                                transactions.Except(mineTxs).ToList(); // remove transactions we just recorded
-                        }
+                        // if we are done AND we are the first thread to finish, capture this block (might not be valid)
+                        if (done && Interlocked.CompareExchange(ref toBeMined, 0, 1) == 1) minedBlock = block;
                     });
-                    if (bc.CheckForNewBlocks()) {
-                        Console.WriteLine("File changed. Loading new blocks...");
-                        bc.LoadNewBlocks(onBlockLoad: Console.WriteLine);
-                    } else {
-                        var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
+                    // we either found a block or the file changed (or maybe both, but file change takes precedence)
+                    if (!bc.LoadNewBlocks(onBlockLoad: Console.WriteLine)) {
+                        bc.Commit(minedBlock);
+                        transactions = transactions.Except(mineTxs).ToList(); // remove txs we just committed
                         int hashCount = hashCounts.Sum();
-                        Console.WriteLine(
-                            $"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {hashCount / elapsed / 1E6:N3}Mhps txs={transactions.Count:N0}");
+                        var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
+                        Console.WriteLine($"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {
+                            hashCount / elapsed / 1E6:N3}Mhps txs={transactions.Count:N0}");
                     }
                 }
             } finally {
-                Console.Write("\e[?25h"); // show cursor
+                Console.Write("\e[?25h"); // show cursor before exit, even if we threw an exception
             }
         }
     }
@@ -103,12 +103,12 @@ public static class Program {
         return new Transaction(bc.LastBlock?.BlockId ?? 0ul, receiver, amount, fee, wallet);
     }
 
-    private static int previousSpinner = -1;
+    private static int previousSpinner = -1; // so we only write the spinner character when it changes
 
     private static void Spinner() {
-        var t = DateTime.Now.Millisecond / 100;
-        if (t == previousSpinner) return;
+        var t = DateTime.Now.Millisecond / 100; // spins around once per second
+        if (t == previousSpinner) return; // only write if it changed
         Console.Write("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[previousSpinner = t]);
-        Console.Write('\b');
+        Console.Write('\b'); // backspace to so we can overwrite the character
     }
 }

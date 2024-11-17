@@ -22,9 +22,9 @@ public class Block {
     public ReadOnlySpan<byte> RewardPublicKey => TransactionData[^148..^8];
     public ulong TotalMicroRewardAmount => BitConverter.ToUInt64(TransactionData[^8..]);
 
-    public Block(Blockchain bc, Block previous, IReadOnlyList<Transaction> transactions,
+    public Block(Blockchain bc, IReadOnlyList<Transaction> transactions,
         ReadOnlySpan<byte> myPublicKey) :
-        this(bc, previous, MakeData(bc, transactions, myPublicKey)) {
+        this(bc, bc.LastBlock, MakeData(bc, transactions, myPublicKey)) {
     }
 
     private static byte[] MakeData(Blockchain bc, IReadOnlyList<Transaction> transactions,
@@ -66,7 +66,8 @@ public class Block {
         ];
         VerifyBlockData(bc, data[^148..^8]);
         if (nonce == null) new Random().NextBytes(this.nonce);
-        Contract.Assert(hash == null || Hash.IsLessThan(bc.Difficulty) && Hash.SequenceEqual(hash), "Invalid hash");
+        Contract.Assert(hash == null || Hash.SequenceCompareTo(bc.Difficulty) < 0 && Hash.SequenceEqual(hash),
+            "Invalid hash");
     }
 
     public Block IncrementAndHash() {

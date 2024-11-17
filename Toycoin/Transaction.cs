@@ -5,7 +5,7 @@ namespace Toycoin;
 public class Transaction {
     public const int BinaryLength = 8 + 140 + 8 + 140 + 8 + 128; // 432 bytes
     public byte[] Data { get; }
-    
+
     // we put Receiver and MicroAmount first to match the reward mini-transaction at the end
     public ulong BlockId => BitConverter.ToUInt64(Data.AsSpan()[..8]);
     public ReadOnlySpan<byte> Receiver => Data.AsSpan()[8..148];

@@ -5,38 +5,38 @@ namespace Toycoin;
 public class Wallet : IDisposable {
     private readonly string walletFile = "wallet.dat";
     private readonly byte[] publicKey;
-    private readonly RSACryptoServiceProvider rsa;
+    private readonly RSACryptoServiceProvider rsa = new(); // remember to dispose of this for security
+    public void Dispose() => rsa.Dispose(); // clear from memory for security
+    
     public ReadOnlySpan<byte> PublicKey => publicKey.AsSpan();
 
     public Wallet(string walletFilename = null) {
-        if (walletFilename != null) walletFile = walletFilename;
         try {
-            rsa = new();
-            byte[] privateKey;
+            if (walletFilename != null) walletFile = walletFilename;
             if (File.Exists(walletFile)) {
-                privateKey = File.ReadAllBytes(walletFile);
+                var privateKey = File.ReadAllBytes(walletFile); // remember to clear from memory for security
                 rsa.ImportRSAPrivateKey(privateKey, out _);
+                Array.Clear(privateKey); // clear private key from memory for security
             } else {
-                privateKey = rsa.ExportRSAPrivateKey();
+                var privateKey = rsa.ExportRSAPrivateKey(); // remember to clear from memory for security
                 File.WriteAllBytes(walletFile, privateKey);
+                Array.Clear(privateKey); // clear private key from memory for security
             }
-            Array.Clear(privateKey); // clear private key from memory for security
             publicKey = rsa.ExportRSAPublicKey();
         } finally {
-            if (publicKey == null) rsa?.Dispose(); // clear from memory for security, but only if we didn't succeed
+            if (publicKey == null) rsa?.Dispose(); // clear from memory for security, but only if we did NOT succeed
         }
     }
-    
+
     public void SignData(ReadOnlySpan<byte> data, Span<byte> signature) =>
         rsa.TrySignData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1, out _);
 
     public static bool VerifyData(ReadOnlySpan<byte> data, ReadOnlySpan<byte> signature, ReadOnlySpan<byte> publicKey) {
-        using (RSACryptoServiceProvider rsa = new()) {
-            rsa.ImportRSAPublicKey(publicKey, out _);
-            return rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using (RSACryptoServiceProvider localRsa = new()) {
+            localRsa.ImportRSAPublicKey(publicKey, out _);
+            return localRsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         }
     }
-    public override string ToString() => $"{Convert.ToHexString(publicKey)}";
 
-    public void Dispose() => rsa.Dispose(); // clear from memory for security
+    public override string ToString() => $"{Convert.ToHexString(publicKey)}";
 }

@@ -53,7 +53,8 @@ public class Blockchain {
         }
     }
 
-    public void ValidateTransactions(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey, ulong totalMicroRewardAmount) =>
+    public void ValidateTransactions(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
+        ulong totalMicroRewardAmount) =>
         UpdateBalances(transactions, rewardPublicKey, totalMicroRewardAmount, justCheck: true);
 
     public Blockchain(string blockchainFilename = null, Action<Block> onBlockLoad = null) {
@@ -61,8 +62,8 @@ public class Blockchain {
         LoadNewBlocks(onBlockLoad);
     }
 
-    public bool CheckBlock(Block block) => block.Hash.IsLessThan(Difficulty);
-    
+    public bool CheckBlock(Block block) => block.Hash.SequenceCompareTo(Difficulty) < 0;
+
     public bool LoadNewBlocks(Action<Block> onBlockLoad) {
         var newFileDateTime = File.GetLastWriteTimeUtc(blockchainFile);
         if (lastFileDateTime == newFileDateTime) return false;
@@ -81,7 +82,7 @@ public class Blockchain {
 
     public void Commit(Block block) {
         ulong expectedBlockId = 0;
-        if (LastBlock!=null) expectedBlockId = LastBlock.BlockId + 1;
+        if (LastBlock != null) expectedBlockId = LastBlock.BlockId + 1;
         Contract.Assert(block.BlockId == expectedBlockId, "Invalid block id");
         LastBlock = block;
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
