@@ -102,8 +102,10 @@ public static class Program {
     private static Transaction MakeRandomTransaction(Blockchain bc, Wallet wallet, Random random) {
         var receiver = new byte[Wallet.PublicKeyLength];
         random.NextBytes(receiver);
-        ulong amount = (ulong)random.Next((int)(bc.MicroReward / (ulong)(bc.MaxTransactions * 3 / 2))),
-            fee = (ulong)random.Next(100);
+        // we want to make sure we don't overflow the reward, so we limit the amount to 2/3 of the average
+        ulong reward = bc.MicroReward;
+        Toycoin amount = (ulong)random.Next((int)(reward / (ulong)(bc.MaxTransactions * 3 / 2)));
+        Toycoin fee = (ulong)random.Next(100);
         return new Transaction(bc.LastBlock?.BlockId ?? 0ul, receiver, amount, fee, wallet);
     }
 

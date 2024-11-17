@@ -4,8 +4,8 @@ namespace Toycoin;
 
 public class Transaction {
     public const int BinaryLength = sizeof(ulong) + Wallet.PublicKeyLength + 
-                                    sizeof(ulong) + Wallet.PublicKeyLength + 
-                                    sizeof(ulong) + Wallet.SignatureLength; // 432 bytes
+                                    Toycoin.Size + Wallet.PublicKeyLength + 
+                                    Toycoin.Size + Wallet.SignatureLength; // 432 bytes
     public byte[] Data { get; }
 
     // we put Receiver and MicroAmount first to match the reward mini-transaction at the end
@@ -13,23 +13,23 @@ public class Transaction {
     private Span<byte> dataAtReceiver => Data.AsSpan(sizeof(ulong));
     public ReadOnlySpan<byte> Receiver => dataAtReceiver[..Wallet.PublicKeyLength];
     private Span<byte> dataAtMicroAmount => dataAtReceiver[Wallet.PublicKeyLength..];
-    public ulong MicroAmount => BitConverter.ToUInt64(dataAtMicroAmount[..sizeof(ulong)]);
-    private Span<byte> dataAtSender => dataAtMicroAmount[sizeof(ulong)..];
+    public Toycoin MicroAmount => Toycoin.FromBytes(dataAtMicroAmount[..Toycoin.Size]);
+    private Span<byte> dataAtSender => dataAtMicroAmount[Toycoin.Size..];
     public ReadOnlySpan<byte> Sender => dataAtSender[..Wallet.PublicKeyLength];
     private Span<byte> dataAtMicroFee => dataAtSender[Wallet.PublicKeyLength..];
-    public ulong MicroFee => BitConverter.ToUInt64(dataAtMicroFee[..sizeof(ulong)]);
-    private Span<byte> dataAtSignature => dataAtMicroFee[sizeof(ulong)..];
+    public Toycoin MicroFee => Toycoin.FromBytes(dataAtMicroFee[..Toycoin.Size]);
+    private Span<byte> dataAtSignature => dataAtMicroFee[Toycoin.Size..];
     public ReadOnlySpan<byte> ToBeSigned => Data.AsSpan()[..^Wallet.SignatureLength];
     private Span<byte> signature => Data.AsSpan()[^Wallet.SignatureLength..];
     public ReadOnlySpan<byte> Signature => signature;
 
-    public Transaction(ulong blockId, ReadOnlySpan<byte> receiver, ulong microAmount, ulong microFee, Wallet wallet) {
+    public Transaction(ulong blockId, ReadOnlySpan<byte> receiver, Toycoin microAmount, Toycoin microFee, Wallet wallet) {
         Data = [
             .. BitConverter.GetBytes(blockId),
             .. receiver,
-            .. BitConverter.GetBytes(microAmount),
+            .. microAmount.ToBytes(),
             .. wallet.PublicKey,
-            .. BitConverter.GetBytes(microFee),
+            .. microFee.ToBytes(),
             .. new byte[Wallet.SignatureLength], // signature
         ];
         Contract.Assert(Data.Length == BinaryLength, "Invalid data length");

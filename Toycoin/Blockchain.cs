@@ -10,64 +10,62 @@ public class Blockchain {
     public byte[] Difficulty { get; } = // must have 3 leading zeros to be less than this
         [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-    public ulong MicroReward { get; } = 1_000_000; // 1 toycoin mining reward
+    public Toycoin MicroReward { get; } = 1_000_000; // 1 toycoin mining reward
     public int MaxTransactions { get; } = 10; // maximum transactions per block
 
     // initialize to what File.GetLastWriteTimeUtc returns for a non-existent file
     private DateTime lastFileDateTime = DateTime.FromFileTimeUtc(0);
 
     private readonly Lock balancesLock = new();
-    private readonly Dictionary<byte[], ulong> balances = new(ByteArrayComparer.Instance); // balances by public key
+    private readonly Dictionary<byte[], Toycoin> balances = new(ByteArrayComparer.Instance); // balances by public key
     private readonly HashSet<byte[]> signatures = new(ByteArrayComparer.Instance); // unique transaction signatures
 
     private void UpdateBalances(Block block, bool justCheck = false) =>
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount, justCheck);
 
     public void ValidateTransactions(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
-        ulong totalMicroRewardAmount) =>
+        Toycoin totalMicroRewardAmount) =>
         UpdateBalances(transactions, rewardPublicKey, totalMicroRewardAmount, justCheck: true);
 
     private void UpdateBalances(IEnumerable<Transaction> transactions, ReadOnlySpan<byte> rewardPublicKey,
-        ulong totalMicroRewardAmount, bool justCheck = false) {
-        checked { // check for overflow/underflow on all arithmetic operations
-            var checkReward = MicroReward;
-            // group transactions by sender and receiver with adds and subs so we can confirm that each account has
-            // enough funds to cover the transactions before we update the balances
-            Dictionary<byte[], ulong> adds = new(ByteArrayComparer.Instance), subs = new(ByteArrayComparer.Instance);
-            HashSet<byte[]> newSignatures = new(ByteArrayComparer.Instance);
-            var addsLookup = adds.GetAlternateLookup<ReadOnlySpan<byte>>();
-            var subsLookup = subs.GetAlternateLookup<ReadOnlySpan<byte>>();
-            var signaturesLookup = signatures.GetAlternateLookup<ReadOnlySpan<byte>>();
-            var newSignaturesLookup = newSignatures.GetAlternateLookup<ReadOnlySpan<byte>>();
-            foreach (var tx in transactions) {
-                CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, tx.Receiver, out _) += tx.MicroAmount;
-                ulong totalSubtract = tx.MicroAmount + tx.MicroFee;
-                CollectionsMarshal.GetValueRefOrAddDefault(subsLookup, tx.Sender, out _) += totalSubtract;
-                checkReward += tx.MicroFee;
-                // since transactions include block id, we should never have a legitimate duplicate signature
-                Contract.Assert(!signaturesLookup.Contains(tx.Signature), "Replayed transaction");
-                // we should never have a duplicate signature in the same block, that'd be just silly
-                Contract.Assert(newSignaturesLookup.Add(tx.Signature), "Duplicate transaction");
-            }
-            Contract.Assert(checkReward == totalMicroRewardAmount, "Invalid total reward amount");
-            CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, rewardPublicKey, out _) += totalMicroRewardAmount;
+        Toycoin totalMicroRewardAmount, bool justCheck = false) {
+        var checkReward = MicroReward;
+        // group transactions by sender and receiver with adds and subs so we can confirm that each account has
+        // enough funds to cover the transactions before we update the balances
+        Dictionary<byte[], Toycoin> adds = new(ByteArrayComparer.Instance), subs = new(ByteArrayComparer.Instance);
+        HashSet<byte[]> newSignatures = new(ByteArrayComparer.Instance);
+        var addsLookup = adds.GetAlternateLookup<ReadOnlySpan<byte>>();
+        var subsLookup = subs.GetAlternateLookup<ReadOnlySpan<byte>>();
+        var signaturesLookup = signatures.GetAlternateLookup<ReadOnlySpan<byte>>();
+        var newSignaturesLookup = newSignatures.GetAlternateLookup<ReadOnlySpan<byte>>();
+        foreach (var tx in transactions) {
+            CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, tx.Receiver, out _) += tx.MicroAmount;
+            Toycoin totalSubtract = tx.MicroAmount + tx.MicroFee;
+            CollectionsMarshal.GetValueRefOrAddDefault(subsLookup, tx.Sender, out _) += totalSubtract;
+            checkReward += tx.MicroFee;
+            // since transactions include block id, we should never have a legitimate duplicate signature
+            Contract.Assert(!signaturesLookup.Contains(tx.Signature), "Replayed transaction");
+            // we should never have a duplicate signature in the same block, that'd be just silly
+            Contract.Assert(newSignaturesLookup.Add(tx.Signature), "Duplicate transaction");
+        }
+        Contract.Assert(checkReward == totalMicroRewardAmount, "Invalid total reward amount");
+        CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, rewardPublicKey, out _) += totalMicroRewardAmount;
 
-            // check and update balances
-            lock (balancesLock) { // not strictly necessary here since we're not using threads, but good practice
-                // check that each account has enough funds to cover the transactions
-                foreach (var (key, value) in subs)
-                    Contract.Assert(balances.GetValueOrDefault(key, 0ul) + adds.GetValueOrDefault(key, 0ul) >= value,
-                        "Insufficient funds");
-                if (justCheck) return;
-                // update known signatures
-                signatures.UnionWith(newSignatures);
-                // update balances
-                // perform adds first to avoid negative balances
-                foreach (var (key, value) in adds)
-                    balances[key] = balances.GetValueOrDefault(key, 0ul) + value;
-                foreach (var (key, value) in subs)
-                    balances[key] -= value; // balances MUST always have a value for key
-            }
+        // check and update balances
+        lock (balancesLock) { // not strictly necessary here since we're not using threads, but good practice
+            // check that each account has enough funds to cover the transactions
+            foreach (var (key, value) in subs)
+                Contract.Assert(balances.GetValueOrDefault(key, 0ul) + adds.GetValueOrDefault(key, 0ul) >= value,
+                    "Insufficient funds");
+            if (justCheck) return;
+            // update known signatures
+            signatures.UnionWith(newSignatures);
+            // update balances
+            // perform adds first to avoid negative balances
+            foreach (var (key, value) in adds)
+                balances[key] = balances.GetValueOrDefault(key, 0ul) + value;
+            foreach (var (key, value) in subs)
+                balances[key] -= value; // balances MUST always have a value for key
         }
     }
     

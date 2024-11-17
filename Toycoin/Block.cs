@@ -24,10 +24,10 @@ public class Block {
     private ReadOnlySpan<byte> toBeHashed => data.AsSpan()[..^HashLength];
     private Span<byte> hash => data.AsSpan()[^HashLength..];
     public ReadOnlySpan<byte> Hash => hash;
-    public ReadOnlySpan<byte> Transactions => TransactionData[..^(Wallet.PublicKeyLength + sizeof(ulong))];
+    public ReadOnlySpan<byte> Transactions => TransactionData[..^(Wallet.PublicKeyLength + Toycoin.Size)];
     public ReadOnlySpan<byte> RewardPublicKey =>
-        TransactionData[^(Wallet.PublicKeyLength + sizeof(ulong))..^sizeof(ulong)];
-    public ulong TotalMicroRewardAmount => BitConverter.ToUInt64(TransactionData[^sizeof(ulong)..]);
+        TransactionData[^(Wallet.PublicKeyLength + Toycoin.Size)..^Toycoin.Size];
+    public Toycoin TotalMicroRewardAmount => Toycoin.FromBytes(TransactionData[^Toycoin.Size..]);
 
     public Block(Blockchain bc, IReadOnlyList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) :
         this(bc, MakeData(bc, transactions, myPublicKey)) {
@@ -35,14 +35,10 @@ public class Block {
 
     private static byte[] MakeData(Blockchain bc, IReadOnlyList<Transaction> transactions,
         ReadOnlySpan<byte> myPublicKey) {
-        var totalMicroRewardAmount = transactions.Aggregate(bc.MicroReward, (sum, tx) => {
-            checked {
-                return sum + tx.MicroFee;
-            }
-        });
+        var totalMicroRewardAmount = transactions.Aggregate(bc.MicroReward, (sum, tx) => sum + tx.MicroFee);
         bc.ValidateTransactions(transactions, myPublicKey, totalMicroRewardAmount);
 
-        int bufferSize = transactions.Count * Transaction.BinaryLength + Wallet.PublicKeyLength + sizeof(ulong);
+        int bufferSize = transactions.Count * Transaction.BinaryLength + Wallet.PublicKeyLength + Toycoin.Size;
         byte[] buffer = new byte[bufferSize];
         int ptr = 0;
         foreach (var tx in transactions) {
@@ -52,7 +48,7 @@ public class Block {
         myPublicKey.CopyTo(buffer.AsSpan()[ptr..]);
         ptr += Wallet.PublicKeyLength;
         BitConverter.TryWriteBytes(buffer.AsSpan()[ptr..], totalMicroRewardAmount);
-        ptr += sizeof(ulong);
+        ptr += Toycoin.Size;
         Contract.Assert(ptr == buffer.Length, "Did not fill buffer correctly");
         return buffer;
     }
@@ -72,7 +68,7 @@ public class Block {
             .. hash ?? new byte[HashLength]
         ];
         Contract.Assert(dataAtTransaction.Length == TransactionData.Length + HashLength, "Invalid data length");
-        Contract.Assert(data.Length % Transaction.BinaryLength == Wallet.PublicKeyLength + sizeof(ulong),
+        Contract.Assert(data.Length % Transaction.BinaryLength == Wallet.PublicKeyLength + Toycoin.Size,
             "Invalid data length");
         VerifyBlockData(bc, RewardPublicKey);
         if (nonce == null) new Random().NextBytes(this.nonce);
@@ -94,7 +90,7 @@ public class Block {
     public IEnumerable<Transaction> ReadTransactions() {
         int txCount = TransactionData.Length / Transaction.BinaryLength,
             remainder = TransactionData.Length % Transaction.BinaryLength;
-        Contract.Assert(remainder == Wallet.PublicKeyLength + sizeof(ulong), "expected reward transaction at end");
+        Contract.Assert(remainder == Wallet.PublicKeyLength + Toycoin.Size, "expected reward transaction at end");
         for (int i = 0, si = 0; i < txCount; i++)
             yield return new(TransactionData[si..(si += Transaction.BinaryLength)]);
     }
