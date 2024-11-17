@@ -18,9 +18,7 @@ public class Blockchain {
 
     private readonly Lock balancesLock = new();
     private readonly Dictionary<byte[], ulong> balances = new(ByteArrayComparer.Instance); // balances by public key
-    private readonly Dictionary<byte[], ulong>.AlternateLookup<ReadOnlySpan<byte>> balancesLookup;
     private readonly HashSet<byte[]> signatures = new(ByteArrayComparer.Instance); // unique transaction signatures
-    private readonly HashSet<byte[]>.AlternateLookup<ReadOnlySpan<byte>> signaturesLookup;
 
     private void UpdateBalances(Block block) =>
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount);
@@ -33,11 +31,10 @@ public class Blockchain {
             // enough funds to cover the transactions before we update the balances
             Dictionary<byte[], ulong> adds = new(ByteArrayComparer.Instance), subs = new(ByteArrayComparer.Instance);
             HashSet<byte[]> newSignatures = new(ByteArrayComparer.Instance);
-            Dictionary<byte[], ulong>.AlternateLookup<ReadOnlySpan<byte>>
-                addsLookup = adds.GetAlternateLookup<ReadOnlySpan<byte>>(),
-                subsLookup = subs.GetAlternateLookup<ReadOnlySpan<byte>>();
-            HashSet<byte[]>.AlternateLookup<ReadOnlySpan<byte>>
-                newSignaturesLookup = newSignatures.GetAlternateLookup<ReadOnlySpan<byte>>();
+            var addsLookup = adds.GetAlternateLookup<ReadOnlySpan<byte>>();
+            var subsLookup = subs.GetAlternateLookup<ReadOnlySpan<byte>>();
+            var signaturesLookup = signatures.GetAlternateLookup<ReadOnlySpan<byte>>();
+            var newSignaturesLookup = newSignatures.GetAlternateLookup<ReadOnlySpan<byte>>();
             foreach (var tx in transactions) {
                 CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, tx.Receiver, out _) += tx.MicroAmount;
                 ulong totalSubtract = tx.MicroAmount + tx.MicroFee;
@@ -75,8 +72,6 @@ public class Blockchain {
         UpdateBalances(transactions, rewardPublicKey, totalMicroRewardAmount, justCheck: true);
 
     public Blockchain(string blockchainFilename = null, Action<Block> onBlockLoad = null) {
-        balancesLookup = balances.GetAlternateLookup<ReadOnlySpan<byte>>();
-        signaturesLookup = signatures.GetAlternateLookup<ReadOnlySpan<byte>>();
         if (blockchainFilename != null) blockchainFile = blockchainFilename;
         LoadNewBlocks(onBlockLoad);
     }
