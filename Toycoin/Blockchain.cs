@@ -16,6 +16,7 @@ public class Blockchain {
     // initialize to what File.GetLastWriteTimeUtc returns for a non-existent file
     private DateTime lastFileDateTime = DateTime.FromFileTimeUtc(0);
 
+    private readonly Lock balancesLock = new();
     private readonly Dictionary<byte[], ulong> balances = new(ByteArrayComparer.Instance); // balances by public key
     private readonly Dictionary<byte[], ulong>.AlternateLookup<ReadOnlySpan<byte>> balancesLookup;
     private readonly HashSet<byte[]> signatures = new(ByteArrayComparer.Instance); // unique transaction signatures
@@ -51,7 +52,7 @@ public class Blockchain {
             CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, rewardPublicKey, out _) += totalMicroRewardAmount;
 
             // check and update balances
-            lock (balances) { // not strictly necessary here since we're not using threads, but good practice
+            lock (balancesLock) { // not strictly necessary here since we're not using threads, but good practice
                 // check that each account has enough funds to cover the transactions
                 foreach (var (key, value) in subs)
                     Contract.Assert(balances.GetValueOrDefault(key, 0ul) + adds.GetValueOrDefault(key, 0ul) >= value,
@@ -88,8 +89,8 @@ public class Blockchain {
         if (lastFileDateTime == newFileDateTime) return false;
         foreach (var line in File.ReadLines(blockchainFile).Skip(skip)) {
             var ss = line.Split(' ').Select(Convert.FromHexString).ToArray(); // nonce, data, hash
-            Block block = new(this, LastBlock, ss[1], ss[0], ss[2]);
-            UpdateBalances(LastBlock = block);
+            LastBlock = new(this, LastBlock, ss[1], ss[0], ss[2]);
+            UpdateBalances(LastBlock);
             onBlockLoad?.Invoke(LastBlock);
         }
         lastFileDateTime = newFileDateTime;
