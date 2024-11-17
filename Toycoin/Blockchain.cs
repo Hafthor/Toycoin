@@ -5,7 +5,9 @@ namespace Toycoin;
 public class Blockchain {
     private readonly string blockchainFile = "blockchain.txt";
     public Block LastBlock { get; private set; }
-    public byte[] Difficulty { get; } = [0, 0, 0]; // 3 leading zeros
+
+    public byte[] Difficulty { get; } = // must have 3 leading zeros to be less than this
+        [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; 
     public ulong MicroReward { get; } = 1_000_000; // 1 toycoin
     public int MaxTransactions { get; } = 10;
 
