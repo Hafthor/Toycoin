@@ -3,6 +3,8 @@ namespace Toycoin;
 public struct Toycoin(ulong value) : IComparable<Toycoin>, IEquatable<Toycoin>, IFormattable {
     private readonly ulong value = value;
 
+    public const string Symbol = "🧸";
+
     public const int Size = sizeof(ulong);
     
     private const decimal OneToycoin = 1_000_000m;
@@ -14,13 +16,13 @@ public struct Toycoin(ulong value) : IComparable<Toycoin>, IEquatable<Toycoin>, 
     public override string ToString() {
         decimal value = this.value;
         value /= OneToycoin;
-        return value.ToString();
+        return Symbol + value;
     }
 
     public string ToString(string format, IFormatProvider formatProvider) {
         decimal value = this.value;
         value /= OneToycoin;
-        return value.ToString(format, formatProvider);
+        return Symbol + value.ToString(format, formatProvider);
     }
 
     public static Toycoin MinValue => (Toycoin)(ulong.MinValue / OneToycoin);
@@ -29,19 +31,16 @@ public struct Toycoin(ulong value) : IComparable<Toycoin>, IEquatable<Toycoin>, 
     
     public static Toycoin Parse(string s) {
         checked {
-            return new Toycoin((ulong)(decimal.Parse(s) * OneToycoin));
+            return new Toycoin((ulong)(decimal.Parse(s.TrimStart(Symbol.ToCharArray())) * OneToycoin));
         }
     }
 
     public static bool TryParse(string s, out Toycoin result) {
-        if (decimal.TryParse(s, out decimal value)) {
-            checked {
-                result = new((ulong)(value * OneToycoin));
-            }
-            return true;
+        bool success = decimal.TryParse(s.TrimStart(Symbol.ToCharArray()), out decimal value);
+        checked {
+            result = new((ulong)(value * OneToycoin));
         }
-        result = default;
-        return false;
+        return success;
     }
     
     public static Toycoin FromBytes(ReadOnlySpan<byte> bytes) => new(BitConverter.ToUInt64(bytes));

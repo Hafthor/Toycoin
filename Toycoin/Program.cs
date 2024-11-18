@@ -81,8 +81,9 @@ public static class Program {
                             transactions = transactions.Except(mineTxs).ToList(); // remove txs we just committed
                             int hashCount = hashCounts.Sum();
                             var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
+                            var balance = bc.GetBalance(myPublicKey);
                             Console.WriteLine($"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {
-                                hashCount / elapsed / 1E6:N3}Mhps txs={transactions.Count:N0}");
+                                hashCount / elapsed / 1E6:N3}Mhps txs={transactions.Count:N0} balance={balance}");
                         } else {
                             Console.WriteLine("Block not committed");
                             bc.LoadNewBlocks(onBlockLoad: Console.WriteLine);

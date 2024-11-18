@@ -69,6 +69,11 @@ public class Blockchain {
         }
     }
     
+    public Toycoin GetBalance(ReadOnlySpan<byte> publicKey) {
+        var balancesLookup = balances.GetAlternateLookup<ReadOnlySpan<byte>>();
+        return balancesLookup.TryGetValue(publicKey, out var balance) ? balance : 0ul;
+    }
+    
     public Blockchain(string blockchainFilename = null, Action<Block> onBlockLoad = null) {
         Contract.Assert(Difficulty.Length == Block.HashLength, "Invalid difficulty length");
         if (blockchainFilename != null) blockchainFile = blockchainFilename;
