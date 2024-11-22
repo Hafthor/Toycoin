@@ -14,10 +14,10 @@ public class ByteArrayComparer : EqualityComparer<byte[]>, IAlternateEqualityCom
     public override int GetHashCode(byte[] obj) => GetHashCode(obj.AsSpan());
 
     public int GetHashCode(ReadOnlySpan<byte> alternate) {
-        HashCode hashCode = new();
+        int hash = 0;
         foreach (var b in alternate)
-            hashCode.Add(b);
-        return hashCode.ToHashCode();
+            hash = hash * 13 + b;
+        return hash;
     }
 
     public byte[] Create(ReadOnlySpan<byte> alternate) => alternate.ToArray();
