@@ -31,16 +31,21 @@ public struct Toycoin(ulong value) : IComparable<Toycoin>, IEquatable<Toycoin>, 
     
     public static Toycoin Parse(string s) {
         checked {
-            return new Toycoin((ulong)(decimal.Parse(s.TrimStart(Symbol.ToCharArray())) * OneToycoin));
+            var d = decimal.Parse(s.TrimStart(Symbol.ToCharArray()));
+            if (d < 0) throw new ArgumentOutOfRangeException(nameof(s), "Value cannot be negative");
+            if (d > ulong.MaxValue / OneToycoin) throw new ArgumentOutOfRangeException(nameof(s), "Value is too large");
+            return new Toycoin((ulong)(d * OneToycoin));
         }
     }
 
     public static bool TryParse(string s, out Toycoin result) {
         bool success = decimal.TryParse(s.TrimStart(Symbol.ToCharArray()), out decimal value);
-        checked {
-            result = new((ulong)(value * OneToycoin));
+        if (!success || value is < 0 or > ulong.MaxValue / OneToycoin) {
+            result = 0; 
+            return false;
         }
-        return success;
+        result = new((ulong)(value * OneToycoin));
+        return true;
     }
     
     public static Toycoin FromBytes(ReadOnlySpan<byte> bytes) => new(BitConverter.ToUInt64(bytes));
