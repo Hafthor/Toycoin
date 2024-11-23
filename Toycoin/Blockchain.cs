@@ -1,5 +1,4 @@
 using System.Diagnostics.Contracts;
-using System.Runtime.InteropServices;
 
 namespace Toycoin;
 
@@ -17,8 +16,8 @@ public class Blockchain {
     private DateTime lastFileDateTime = DateTime.FromFileTimeUtc(0);
 
     private readonly Lock balancesLock = new();
-    private readonly Dictionary<byte[], Toycoin> balances = new(ByteArrayComparer.Instance); // balances by public key
-    private readonly HashSet<byte[]> signatures = new(ByteArrayComparer.Instance); // unique transaction signatures
+    private readonly ArrayKeyDictionary<byte, Toycoin> balances = new(); // balances by public key
+    private readonly ArrayKeyHashSet<byte> signatures = new(); // unique transaction signatures
 
     private void UpdateBalances(Block block, bool justCheck = false) =>
         UpdateBalances(block.ReadTransactions(), block.RewardPublicKey, block.TotalMicroRewardAmount, justCheck);
@@ -32,24 +31,20 @@ public class Blockchain {
         var checkReward = MicroReward;
         // group transactions by sender and receiver with adds and subs so we can confirm that each account has
         // enough funds to cover the transactions before we update the balances
-        Dictionary<byte[], Toycoin> adds = new(ByteArrayComparer.Instance), subs = new(ByteArrayComparer.Instance);
-        HashSet<byte[]> newSignatures = new(ByteArrayComparer.Instance);
-        var addsLookup = adds.GetAlternateLookup<ReadOnlySpan<byte>>();
-        var subsLookup = subs.GetAlternateLookup<ReadOnlySpan<byte>>();
-        var signaturesLookup = signatures.GetAlternateLookup<ReadOnlySpan<byte>>();
-        var newSignaturesLookup = newSignatures.GetAlternateLookup<ReadOnlySpan<byte>>();
+        ArrayKeyDictionary<byte, Toycoin> adds = new(), subs = new();
+        ArrayKeyHashSet<byte> newSignatures = new();
         foreach (var tx in transactions) {
-            CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, tx.Receiver, out _) += tx.MicroAmount;
+            adds.GetValueRefOrAddDefault(tx.Receiver, out _) += tx.MicroAmount;
             Toycoin totalSubtract = tx.MicroAmount + tx.MicroFee;
-            CollectionsMarshal.GetValueRefOrAddDefault(subsLookup, tx.Sender, out _) += totalSubtract;
+            subs.GetValueRefOrAddDefault(tx.Sender, out _) += totalSubtract;
             checkReward += tx.MicroFee;
             // since transactions include block id, we should never have a legitimate duplicate signature
-            Contract.Assert(!signaturesLookup.Contains(tx.Signature), "Replayed transaction");
+            Contract.Assert(!signatures.Contains(tx.Signature), "Replayed transaction");
             // we should never have a duplicate signature in the same block, that'd be just silly
-            Contract.Assert(newSignaturesLookup.Add(tx.Signature), "Duplicate transaction");
+            Contract.Assert(newSignatures.Add(tx.Signature), "Duplicate transaction");
         }
         Contract.Assert(checkReward == totalMicroRewardAmount, "Invalid total reward amount");
-        CollectionsMarshal.GetValueRefOrAddDefault(addsLookup, rewardPublicKey, out _) += totalMicroRewardAmount;
+        adds.GetValueRefOrAddDefault(rewardPublicKey, out _) += totalMicroRewardAmount;
 
         // check and update balances
         lock (balancesLock) { // not strictly necessary here since we're not using threads, but good practice
@@ -70,8 +65,8 @@ public class Blockchain {
     }
     
     public Toycoin GetBalance(ReadOnlySpan<byte> publicKey) {
-        var balancesLookup = balances.GetAlternateLookup<ReadOnlySpan<byte>>();
-        return balancesLookup.TryGetValue(publicKey, out var balance) ? balance : 0ul;
+        // var balancesLookup = balances.GetAlternateLookup<ReadOnlySpan<byte>>();
+        return balances.TryGetValue(publicKey, out var balance) ? balance : 0ul;
     }
     
     public Blockchain(string blockchainFilename = null, Action<Block> onBlockLoad = null) {
