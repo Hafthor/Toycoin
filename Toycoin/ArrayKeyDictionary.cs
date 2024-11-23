@@ -32,7 +32,10 @@ public class ArrayKeyDictionary<TKey, TValue> : IDictionary<TKey[], TValue> wher
 
     public bool Contains(KeyValuePair<TKey[], TValue> item) => dictionary.Contains(item);
 
-    public void CopyTo(KeyValuePair<TKey[], TValue>[] array, int arrayIndex) => throw new NotImplementedException();
+    public void CopyTo(KeyValuePair<TKey[], TValue>[] array, int arrayIndex) {
+        foreach (var pair in dictionary)
+            array[arrayIndex++] = pair;
+    }
 
     public bool Remove(KeyValuePair<TKey[], TValue> item) => dictionary.Remove(item.Key);
 

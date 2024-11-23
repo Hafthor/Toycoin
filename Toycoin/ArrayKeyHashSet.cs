@@ -57,7 +57,10 @@ public class ArrayKeyHashSet<T> : ISet<T[]> where T : IComparable {
 
     public bool Contains(ReadOnlySpan<T> item) => lookup.Contains(item);
 
-    public void CopyTo(T[][] array, int arrayIndex) => throw new NotImplementedException();
+    public void CopyTo(T[][] array, int arrayIndex) {
+        foreach (var item in set)
+            array[arrayIndex++] = item;
+    }
 
     public bool Remove(T[] item) => set.Remove(item);
 
