@@ -68,31 +68,23 @@ public class ArrayKeyDictionary<TKey, TValue> : IDictionary<TKey[], TValue> wher
         ref CollectionsMarshal.GetValueRefOrAddDefault(lookup, key, out added);
 
     public TValue GetOrAdd(TKey[] key, Func<TKey[], TValue> factory) {
-        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(dictionary, key, out bool added);
-        if (added) 
-            valueRef = factory(key);
-        return valueRef;
+        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(dictionary, key, out bool exists);
+        return exists ? valueRef : valueRef = factory(key);
     }
     
     public TValue GetOrAdd(ReadOnlySpan<TKey> key, Func<ReadOnlySpan<TKey>, TValue> factory) {
-        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(lookup, key, out bool added);
-        if (added) 
-            valueRef = factory(key);
-        return valueRef;
+        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(lookup, key, out bool exists);
+        return exists ? valueRef : valueRef = factory(key);
     }
     
     public TValue GetOrAdd(TKey[] key, TValue value) {
-        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(dictionary, key, out bool added);
-        if (added) 
-            valueRef = value;
-        return valueRef;
+        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(dictionary, key, out bool exists);
+        return exists ? valueRef : valueRef = value;
     }
     
     public TValue GetOrAdd(ReadOnlySpan<TKey> key, TValue value) {
-        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(lookup, key, out bool added);
-        if (added) 
-            valueRef = value;
-        return valueRef;
+        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(lookup, key, out bool exists);
+        return exists ? valueRef : valueRef = value;
     }
 
     public TValue this[TKey[] key] {
