@@ -67,6 +67,34 @@ public class ArrayKeyDictionary<TKey, TValue> : IDictionary<TKey[], TValue> wher
     public ref TValue GetValueRefOrAddDefault(ReadOnlySpan<TKey> key, out bool added) =>
         ref CollectionsMarshal.GetValueRefOrAddDefault(lookup, key, out added);
 
+    public TValue GetOrAdd(TKey[] key, Func<TKey[], TValue> factory) {
+        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(dictionary, key, out bool added);
+        if (added) 
+            valueRef = factory(key);
+        return valueRef;
+    }
+    
+    public TValue GetOrAdd(ReadOnlySpan<TKey> key, Func<ReadOnlySpan<TKey>, TValue> factory) {
+        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(lookup, key, out bool added);
+        if (added) 
+            valueRef = factory(key);
+        return valueRef;
+    }
+    
+    public TValue GetOrAdd(TKey[] key, TValue value) {
+        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(dictionary, key, out bool added);
+        if (added) 
+            valueRef = value;
+        return valueRef;
+    }
+    
+    public TValue GetOrAdd(ReadOnlySpan<TKey> key, TValue value) {
+        ref var valueRef = ref CollectionsMarshal.GetValueRefOrAddDefault(lookup, key, out bool added);
+        if (added) 
+            valueRef = value;
+        return valueRef;
+    }
+
     public TValue this[TKey[] key] {
         get => dictionary[key];
         set => dictionary[key] = value;
