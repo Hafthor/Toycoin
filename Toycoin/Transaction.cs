@@ -36,10 +36,7 @@ public class Transaction {
         Contract.Assert(dataAtSignature.Length == Wallet.SignatureLength, "Something wrong with the data layout");
         wallet.SignData(ToBeSigned, signature);
     }
-
-    public Transaction(ReadOnlySpan<byte> buffer) : this(buffer.ToArray()) {
-    }
-
+    public Transaction(ReadOnlySpan<byte> buffer) : this(buffer.ToArray()) { }
     public Transaction(byte[] buffer) {
         Contract.Assert(buffer.Length == BinaryLength, "Invalid buffer length");
         Data = buffer;

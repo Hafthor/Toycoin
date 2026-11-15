@@ -55,7 +55,7 @@ public static class Program {
             for (;;) { // mining loop
                 // Add some random transactions
                 using (Wallet wallet = new(walletFilename)) {
-                    transactions.AddRange(MakeRandomTransactions(bc, wallet, new Random()));
+                    transactions.AddRange(MakeRandomTransactions(bc, wallet, Random.Shared));
                 }
                 // get the highest paying transactions
                 var mineTxs = transactions.OrderByDescending(tx => tx.MicroFee).Take(bc.MaxTransactions).ToList();
@@ -66,7 +66,7 @@ public static class Program {
                 int[] hashCounts = new int[threadCount]; // hash counts, 1/thread to avoid having to lock increment
                 Block minedBlock = null;
                 Parallel.For(0, threadCount, threadId => {
-                    var block = new Block(bc, mineTxs, myPublicKey); // create a new block
+                    Block block = new(bc, mineTxs, myPublicKey); // create a new block
                     bool done = false;
                     for (; toBeMined > 0 && !done; hashCounts[threadId]++) {
                         // only one thread checks for new blocks and updates the spinner, and only 1/256 times
@@ -80,18 +80,17 @@ public static class Program {
                     if (done && Interlocked.CompareExchange(ref toBeMined, 0, 1) == 1) minedBlock = block;
                 });
                 // we either found a block or the file changed (or maybe both, but file change takes precedence)
-                if (!bc.LoadNewBlocks(onBlockLoad: Console.WriteLine)) {
-                    if (bc.Commit(minedBlock)) {
-                        transactions = transactions.Except(mineTxs).ToList(); // remove txs we just committed
-                        int hashCount = hashCounts.Sum();
-                        var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
-                        var balance = bc.GetBalance(myPublicKey);
-                        Console.WriteLine($"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {
-                            hashCount / elapsed / 1E6:N3}Mhps txs={transactions.Count:N0} balance={balance}");
-                    } else {
-                        Console.WriteLine("Block not committed");
-                        bc.LoadNewBlocks(onBlockLoad: Console.WriteLine);
-                    }
+                if (bc.LoadNewBlocks(onBlockLoad: Console.WriteLine)) continue;
+                if (bc.Commit(minedBlock)) {
+                    transactions = transactions.Except(mineTxs).ToList(); // remove txs we just committed
+                    int hashCount = hashCounts.Sum();
+                    var elapsed = Stopwatch.GetElapsedTime(startTime).TotalSeconds;
+                    var balance = bc.GetBalance(myPublicKey);
+                    Console.WriteLine($"{bc.LastBlock} {hashCount:N0} {elapsed:N3}s {
+                        hashCount / elapsed / 1E6:N3}Mhps txs={transactions.Count:N0} balance={balance}");
+                } else {
+                    Console.WriteLine("Block not committed");
+                    bc.LoadNewBlocks(onBlockLoad: Console.WriteLine);
                 }
             }
         } finally {
@@ -114,7 +113,6 @@ public static class Program {
     }
 
     private static int previousSpinner = -1; // so we only write the spinner character when it changes
-
     private static void Spinner() {
         var t = DateTime.Now.Millisecond / 100; // spins around once per second
         if (t == previousSpinner) return; // only write if it changed

@@ -4,10 +4,8 @@ using System.Security.Cryptography;
 namespace Toycoin;
 
 public class Block {
-    public const int HashLength = 32, NonceLength = 32;
-
-    public const int MinimumBinaryLength = HashLength + sizeof(ulong) + NonceLength +
-                                           Wallet.PublicKeyLength + sizeof(ulong) + HashLength;
+    public const int HashLength = 32, NonceLength = 32, MinimumBinaryLength =
+        HashLength + sizeof(ulong) + NonceLength + Wallet.PublicKeyLength + sizeof(ulong) + HashLength;
     public Block Previous { get; }
 
     // PreviousHash(32) + BlockId(8) + Nonce(32) + Transactions(424*n) + RewardPublicKey(140) + TotalMicroRewardAmount(8) + Hash(32)
@@ -30,17 +28,15 @@ public class Block {
     public Toycoin TotalMicroRewardAmount => Toycoin.FromBytes(TransactionData[^Toycoin.Size..]);
 
     public Block(Blockchain bc, IReadOnlyList<Transaction> transactions, ReadOnlySpan<byte> myPublicKey) :
-        this(bc, MakeData(bc, transactions, myPublicKey)) {
-    }
+        this(bc, MakeData(bc, transactions, myPublicKey)) { }
 
     private static byte[] MakeData(Blockchain bc, IReadOnlyList<Transaction> transactions,
         ReadOnlySpan<byte> myPublicKey) {
         var totalMicroRewardAmount = transactions.Aggregate(bc.MicroReward, (sum, tx) => sum + tx.MicroFee);
         bc.ValidateTransactions(transactions, myPublicKey, totalMicroRewardAmount);
 
-        int bufferSize = transactions.Count * Transaction.BinaryLength + Wallet.PublicKeyLength + Toycoin.Size;
+        int bufferSize = transactions.Count * Transaction.BinaryLength + Wallet.PublicKeyLength + Toycoin.Size, ptr = 0;
         byte[] buffer = new byte[bufferSize];
-        int ptr = 0;
         foreach (var tx in transactions) {
             tx.Data.CopyTo(buffer.AsSpan()[ptr..]);
             ptr += Transaction.BinaryLength;
@@ -54,12 +50,12 @@ public class Block {
     }
 
     public Block(Blockchain bc, ReadOnlySpan<byte> data, byte[] nonce = null, byte[] hash = null) {
-        Contract.Assert(bc != null, "Missing blockchain");
-        Contract.Assert(nonce == null || nonce.Length == NonceLength, "Invalid nonce length");
-        Contract.Assert(hash == null || hash.Length == HashLength, "Invalid hash length");
+        Contract.Assert(bc is not null, "Missing blockchain");
+        Contract.Assert(nonce is null || nonce.Length == NonceLength, "Invalid nonce length");
+        Contract.Assert(hash is null || hash.Length == HashLength, "Invalid hash length");
         Previous = bc.LastBlock;
-        var previousHash = Previous == null ? new byte[HashLength] : Previous.Hash;
-        var blockId = Previous == null ? 0ul : Previous.BlockId + 1;
+        var previousHash = Previous is null ? new byte[HashLength] : Previous.Hash;
+        var blockId = Previous is null ? 0ul : Previous.BlockId + 1;
         this.data = [
             .. previousHash,
             .. BitConverter.GetBytes(blockId),
@@ -71,8 +67,8 @@ public class Block {
         Contract.Assert(data.Length % Transaction.BinaryLength == Wallet.PublicKeyLength + Toycoin.Size,
             "Invalid data length");
         VerifyBlockData(bc, RewardPublicKey);
-        if (nonce == null) new Random().NextBytes(this.nonce);
-        Contract.Assert(hash == null || Hash.SequenceCompareTo(bc.Difficulty) < 0 && Hash.SequenceEqual(hash),
+        if (nonce is null) Random.Shared.NextBytes(this.nonce);
+        Contract.Assert(hash is null || Hash.SequenceCompareTo(bc.Difficulty) < 0 && Hash.SequenceEqual(hash),
             "Invalid hash");
     }
 
